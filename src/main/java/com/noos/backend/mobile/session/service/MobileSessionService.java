@@ -30,13 +30,16 @@ public class MobileSessionService {
     private final MobileSessionMapper sessionMapper;
     private final SessionFeedbackMapper feedbackMapper;
     private final ObjectMapper objectMapper;
+    private final GenerationWorker worker;
 
     public MobileSessionService(MobileSessionMapper sessionMapper,
                                 SessionFeedbackMapper feedbackMapper,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                GenerationWorker worker) {
         this.sessionMapper = sessionMapper;
         this.feedbackMapper = feedbackMapper;
         this.objectMapper = objectMapper;
+        this.worker = worker;
     }
 
     public EnqueueResponse enqueue(EnqueueRequest request, String deviceId) {
@@ -53,9 +56,21 @@ public class MobileSessionService {
         row.setIntentText(request.intentText());
         row.setRecognitionId(request.measurementId());
         row.setSource(request.source());
+        row.setLightingEnabled(request.lightingEnabled());
         row.setStatus("queued");
         row.setCreatedAt(now);
         sessionMapper.insertQueued(row);
+
+        GenerationContext ctx = new GenerationContext(
+                request.planet(),
+                request.durationSec(),
+                request.currentState(),
+                request.stateLabel(),
+                request.intentText(),
+                request.source(),
+                request.lightingEnabled()
+        );
+        worker.run(sessionId, ctx);
 
         return new EnqueueResponse(sessionId, "queued", request.planet(), request.durationSec(), 600, 5000, now);
     }
