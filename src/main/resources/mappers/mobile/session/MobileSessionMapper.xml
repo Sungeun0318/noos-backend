@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.session.mapper.MobileSessionMapper">
+
+    <resultMap id="MobileSessionRowMap" type="com.noos.backend.mobile.session.dto.MobileSessionRow">
+        <id property="id" column="id" />
+        <result property="userId" column="user_id" />
+        <result property="deviceId" column="device_id" />
+        <result property="planet" column="planet" />
+        <result property="durationSec" column="duration_sec" />
+        <result property="stateLabel" column="state_label" />
+        <result property="currentState" column="current_state" />
+        <result property="intentText" column="intent_text" />
+        <result property="recognitionId" column="recognition_id" />
+        <result property="audioId" column="audio_id" />
+        <result property="lightingJobId" column="lighting_job_id" />
+        <result property="source" column="source" />
+        <result property="status" column="status" />
+        <result property="errorCode" column="error_code" />
+        <result property="errorMessage" column="error_message" />
+        <result property="createdAt" column="created_at" />
+        <result property="startedAt" column="started_at" />
+        <result property="completedAt" column="completed_at" />
+        <result property="deletedAt" column="deleted_at" />
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        user_id,
+        device_id,
+        planet,
+        duration_sec,
+        state_label,
+        current_state,
+        intent_text,
+        recognition_id,
+        audio_id,
+        lighting_job_id,
+        source,
+        status,
+        error_code,
+        error_message,
+        created_at,
+        started_at,
+        completed_at,
+        deleted_at
+    </sql>
+
+    <insert id="insertQueued" parameterType="com.noos.backend.mobile.session.dto.MobileSessionRow">
+        INSERT INTO mobile_sessions (
+            id,
+            user_id,
+            device_id,
+            planet,
+            duration_sec,
+            state_label,
+            current_state,
+            intent_text,
+            recognition_id,
+            source,
+            status,
+            created_at
+        ) VALUES (
+            #{id},
+            #{userId},
+            #{deviceId},
+            #{planet},
+            #{durationSec},
+            #{stateLabel},
+            CAST(#{currentState} AS JSON),
+            #{intentText},
+            #{recognitionId},
+            #{source},
+            #{status},
+            #{createdAt}
+        )
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE mobile_sessions
+        SET status = #{status},
+            started_at = #{startedAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="markReady">
+        UPDATE mobile_sessions
+        SET status = 'ready',
+            audio_id = #{audioId},
+            lighting_job_id = #{lightingJobId},
+            completed_at = #{completedAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="markFailed">
+        UPDATE mobile_sessions
+        SET status = 'failed',
+            error_code = #{code},
+            error_message = #{message}
+        WHERE id = #{id}
+    </update>
+
+    <select id="findById" resultMap="MobileSessionRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM mobile_sessions
+        WHERE id = #{id}
+    </select>
+
+    <select id="list" resultMap="MobileSessionRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM mobile_sessions
+        WHERE deleted_at IS NULL
+          AND device_id = #{deviceId}
+        <if test="status != null and status.size() > 0">
+          AND status IN
+          <foreach collection="status" item="s" open="(" separator="," close=")">
+              #{s}
+          </foreach>
+        </if>
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="softDelete">
+        UPDATE mobile_sessions
+        SET deleted_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>

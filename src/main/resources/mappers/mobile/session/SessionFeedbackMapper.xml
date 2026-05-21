@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.session.mapper.SessionFeedbackMapper">
+
+    <resultMap id="SessionFeedbackRowMap" type="com.noos.backend.mobile.session.dto.SessionFeedbackRow">
+        <id property="sessionId" column="session_id" />
+        <result property="musicFit" column="music_fit" />
+        <result property="lightingFit" column="lighting_fit" />
+        <result property="focusResult" column="focus_result" />
+        <result property="memo" column="memo" />
+        <result property="createdAt" column="created_at" />
+    </resultMap>
+
+    <insert id="upsert" parameterType="com.noos.backend.mobile.session.dto.SessionFeedbackRow">
+        INSERT INTO session_feedback (
+            session_id,
+            music_fit,
+            lighting_fit,
+            focus_result,
+            memo,
+            created_at
+        ) VALUES (
+            #{sessionId},
+            #{musicFit},
+            #{lightingFit},
+            #{focusResult},
+            #{memo},
+            #{createdAt}
+        )
+        ON DUPLICATE KEY UPDATE
+            music_fit = VALUES(music_fit),
+            lighting_fit = VALUES(lighting_fit),
+            focus_result = VALUES(focus_result),
+            memo = VALUES(memo),
+            created_at = VALUES(created_at)
+    </insert>
+
+    <select id="findBySessionId" resultMap="SessionFeedbackRowMap">
+        SELECT
+            session_id,
+            music_fit,
+            lighting_fit,
+            focus_result,
+            memo,
+            created_at
+        FROM session_feedback
+        WHERE session_id = #{sessionId}
+    </select>
+
+</mapper>
