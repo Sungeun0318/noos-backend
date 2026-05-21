@@ -40,6 +40,9 @@ dependencies {
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-mysql'
 
+    // Caffeine 캐시
+    implementation 'com.github.ben-manes.caffeine:caffeine'
+
     // Lombok (getter, setter 자동 생성)
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
