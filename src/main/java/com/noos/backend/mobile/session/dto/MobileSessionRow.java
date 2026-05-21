@@ -16,6 +16,7 @@ public class MobileSessionRow {
     private String recognitionId;
     private String audioId;
     private String lightingJobId;
+    private boolean lightingEnabled;
     private String source;
     private String status;
     private String errorCode;

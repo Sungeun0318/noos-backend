@@ -17,6 +17,7 @@
         <result property="recognitionId" column="recognition_id" />
         <result property="audioId" column="audio_id" />
         <result property="lightingJobId" column="lighting_job_id" />
+        <result property="lightingEnabled" column="lighting_enabled" />
         <result property="source" column="source" />
         <result property="status" column="status" />
         <result property="errorCode" column="error_code" />
@@ -39,6 +40,7 @@
         recognition_id,
         audio_id,
         lighting_job_id,
+        lighting_enabled,
         source,
         status,
         error_code,
@@ -60,6 +62,7 @@
             current_state,
             intent_text,
             recognition_id,
+            lighting_enabled,
             source,
             status,
             created_at
@@ -73,6 +76,7 @@
             CAST(#{currentState} AS JSON),
             #{intentText},
             #{recognitionId},
+            #{lightingEnabled},
             #{source},
             #{status},
             #{createdAt}
