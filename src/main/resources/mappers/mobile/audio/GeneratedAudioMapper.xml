@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.audio.mapper.GeneratedAudioMapper">
+
+    <resultMap id="GeneratedAudioRowMap" type="com.noos.backend.mobile.audio.dto.GeneratedAudioRow">
+        <id property="id" column="id" />
+        <result property="sessionId" column="session_id" />
+        <result property="storageType" column="storage_type" />
+        <result property="storageRef" column="storage_ref" />
+        <result property="mime" column="mime" />
+        <result property="durationSec" column="duration_sec" />
+        <result property="sizeBytes" column="size_bytes" />
+        <result property="sourceWorker" column="source_worker" />
+        <result property="createdAt" column="created_at" />
+        <result property="expiresAt" column="expires_at" />
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO generated_audio (
+            id,
+            session_id,
+            storage_type,
+            storage_ref,
+            mime,
+            duration_sec,
+            created_at,
+            expires_at
+        ) VALUES (
+            #{id},
+            #{sessionId},
+            #{storageType},
+            #{storageRef},
+            #{mime},
+            #{durationSec},
+            NOW(),
+            NULL
+        )
+    </insert>
+
+    <select id="findById" resultMap="GeneratedAudioRowMap">
+        SELECT
+            id,
+            session_id,
+            storage_type,
+            storage_ref,
+            mime,
+            duration_sec,
+            size_bytes,
+            source_worker,
+            created_at,
+            expires_at
+        FROM generated_audio
+        WHERE id = #{id}
+    </select>
+
+</mapper>
