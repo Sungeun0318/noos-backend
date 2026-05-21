@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.chat.mapper.ChatMapper">
+
+    <resultMap id="chatRoomResultMap" type="com.noos.backend.chat.dto.ChatRoom">
+        <id property="roomId" column="room_id" />
+        <result property="userId" column="user_id" />
+        <result property="userName" column="user_name" />
+        <result property="lastMessage" column="last_message" />
+        <result property="unreadCount" column="unread_count" />
+        <result property="updatedAt" column="updated_at" />
+        <result property="status" column="status" />
+    </resultMap>
+
+    <resultMap id="chatMessageResultMap" type="com.noos.backend.chat.dto.ChatMessage">
+        <id property="id" column="id" />
+        <result property="roomId" column="room_id" />
+        <result property="sender" column="sender" />
+        <result property="senderId" column="sender_id" />
+        <result property="content" column="content" />
+        <result property="role" column="role" />
+        <result property="type" column="type" />
+        <result property="timestamp" column="created_at" />
+    </resultMap>
+
+    <insert id="upsertRoom">
+        INSERT INTO chat_rooms (
+            room_id,
+            user_id,
+            status,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{roomId},
+            #{userId},
+            COALESCE(#{status}, 'ACTIVE'),
+            NOW(),
+            NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            user_id = COALESCE(VALUES(user_id), user_id),
+            status = 'ACTIVE',
+            updated_at = NOW()
+    </insert>
+
+    <update id="updateRoomAfterMessage">
+        UPDATE chat_rooms
+        SET
+            last_message = #{lastMessage},
+            unread_count = unread_count + CASE WHEN #{increaseUnread} THEN 1 ELSE 0 END,
+            updated_at = NOW(),
+            status = 'ACTIVE'
+        WHERE room_id = #{roomId}
+    </update>
+
+    <update id="closeRoom">
+        UPDATE chat_rooms
+        SET
+            status = 'CLOSED',
+            updated_at = NOW()
+        WHERE room_id = #{roomId}
+    </update>
+
+    <update id="markRoomRead">
+        UPDATE chat_rooms
+        SET unread_count = 0
+        WHERE room_id = #{roomId}
+    </update>
+
+    <select id="findAllRooms" resultMap="chatRoomResultMap">
+        SELECT
+            cr.room_id,
+            cr.user_id,
+            u.display_name AS user_name,
+            cr.last_message,
+            cr.unread_count,
+            DATE_FORMAT(cr.updated_at, '%Y-%m-%dT%H:%i:%s') AS updated_at,
+            cr.status
+        FROM chat_rooms cr
+        JOIN users u ON u.user_id = cr.user_id
+        ORDER BY cr.updated_at DESC
+    </select>
+
+    <select id="findRoomById" resultMap="chatRoomResultMap">
+        SELECT
+            cr.room_id,
+            cr.user_id,
+            u.display_name AS user_name,
+            cr.last_message,
+            cr.unread_count,
+            DATE_FORMAT(cr.updated_at, '%Y-%m-%dT%H:%i:%s') AS updated_at,
+            cr.status
+        FROM chat_rooms cr
+        JOIN users u ON u.user_id = cr.user_id
+        WHERE cr.room_id = #{roomId}
+    </select>
+
+    <insert id="insertMessage" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO chat_messages (
+            room_id,
+            sender_id,
+            sender,
+            role,
+            type,
+            content,
+            created_at
+        ) VALUES (
+            #{roomId},
+            #{senderId},
+            #{sender},
+            #{role},
+            #{type},
+            #{content},
+            #{timestamp}
+        )
+    </insert>
+
+    <select id="findMessagesByRoomId" resultMap="chatMessageResultMap">
+        SELECT
+            id,
+            room_id,
+            sender_id,
+            sender,
+            role,
+            type,
+            content,
+            created_at
+        FROM chat_messages
+        WHERE room_id = #{roomId}
+        ORDER BY created_at ASC, id ASC
+    </select>
+
+</mapper>

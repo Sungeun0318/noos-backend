@@ -1,0 +1,15 @@
+CREATE TABLE IF NOT EXISTS eeg_raw_chunks (
+    eeg_raw_chunk_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    eeg_session_id BIGINT NOT NULL,
+    chunk_index INT NOT NULL,
+    sample_rate_hz INT NOT NULL,
+    start_offset_ms BIGINT NOT NULL DEFAULT 0,
+    chunk_sample_count INT NOT NULL,
+    samples_json LONGTEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_eeg_raw_chunks_session
+        FOREIGN KEY (eeg_session_id) REFERENCES eeg_sessions(eeg_session_id)
+        ON DELETE CASCADE,
+    UNIQUE KEY uq_eeg_raw_chunks_session_chunk (eeg_session_id, chunk_index),
+    KEY idx_eeg_raw_chunks_session_id (eeg_session_id)
+);

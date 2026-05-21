@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.board.mapper.BoardMapper">
+
+    <resultMap id="postResultMap" type="com.noos.backend.board.dto.BoardPost">
+        <id property="id" column="id" />
+        <result property="category" column="category" />
+        <result property="title" column="title" />
+        <result property="content" column="content" />
+        <result property="author" column="author" />
+        <result property="authorId" column="author_id" />
+        <result property="views" column="views" />
+        <result property="likes" column="likes" />
+        <result property="commentCount" column="comment_count" />
+        <result property="pinned" column="pinned" />
+        <result property="createdAt" column="created_at" />
+        <result property="updatedAt" column="updated_at" />
+    </resultMap>
+
+    <resultMap id="commentResultMap" type="com.noos.backend.board.dto.BoardComment">
+        <id property="id" column="id" />
+        <result property="postId" column="post_id" />
+        <result property="authorId" column="author_id" />
+        <result property="author" column="author" />
+        <result property="content" column="content" />
+        <result property="likes" column="likes" />
+        <result property="createdAt" column="created_at" />
+        <result property="updatedAt" column="updated_at" />
+    </resultMap>
+
+    <select id="findPosts" resultMap="postResultMap">
+        SELECT
+            bp.id,
+            bp.category,
+            bp.title,
+            bp.content,
+            u.display_name AS author,
+            bp.author_id,
+            bp.views,
+            bp.likes,
+            bp.comment_count,
+            bp.pinned,
+            bp.created_at,
+            bp.updated_at
+        FROM board_posts bp
+        JOIN users u ON u.user_id = bp.author_id
+        <where>
+            <if test="category != null and category != ''">
+                AND bp.category = #{category}
+            </if>
+            <if test="searchQuery != null and searchQuery != ''">
+                AND (
+                    bp.title LIKE CONCAT('%', #{searchQuery}, '%')
+                    OR u.display_name LIKE CONCAT('%', #{searchQuery}, '%')
+                )
+            </if>
+        </where>
+        ORDER BY
+            bp.pinned DESC,
+            <choose>
+                <when test="sortBy == 'views'">bp.views DESC</when>
+                <when test="sortBy == 'likes'">bp.likes DESC</when>
+                <when test="sortBy == 'comments'">bp.comment_count DESC</when>
+                <otherwise>bp.created_at DESC</otherwise>
+            </choose>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countPosts" resultType="int">
+        SELECT COUNT(*)
+        FROM board_posts bp
+        JOIN users u ON u.user_id = bp.author_id
+        <where>
+            <if test="category != null and category != ''">
+                AND bp.category = #{category}
+            </if>
+            <if test="searchQuery != null and searchQuery != ''">
+                AND (
+                    bp.title LIKE CONCAT('%', #{searchQuery}, '%')
+                    OR u.display_name LIKE CONCAT('%', #{searchQuery}, '%')
+                )
+            </if>
+        </where>
+    </select>
+
+    <select id="findPostById" resultMap="postResultMap">
+        SELECT
+            bp.id,
+            bp.category,
+            bp.title,
+            bp.content,
+            u.display_name AS author,
+            bp.author_id,
+            bp.views,
+            bp.likes,
+            bp.comment_count,
+            bp.pinned,
+            bp.created_at,
+            bp.updated_at
+        FROM board_posts bp
+        JOIN users u ON u.user_id = bp.author_id
+        WHERE bp.id = #{id}
+    </select>
+
+    <insert id="insertPost" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO board_posts (
+            category,
+            title,
+            content,
+            author_id,
+            pinned,
+            views,
+            likes,
+            comment_count,
+            created_at
+        ) VALUES (
+            #{category},
+            #{title},
+            #{content},
+            #{authorId},
+            #{pinned},
+            0,
+            0,
+            0,
+            #{createdAt}
+        )
+    </insert>
+
+    <update id="updatePost">
+        UPDATE board_posts
+        SET
+            category = #{category},
+            title = #{title},
+            content = #{content},
+            pinned = #{pinned},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deletePost">
+        DELETE FROM board_posts WHERE id = #{id}
+    </delete>
+
+    <update id="incrementViews">
+        UPDATE board_posts SET views = views + 1 WHERE id = #{id}
+    </update>
+
+    <update id="incrementLikes">
+        UPDATE board_posts SET likes = likes + 1 WHERE id = #{id}
+    </update>
+
+    <update id="decrementLikes">
+        UPDATE board_posts SET likes = GREATEST(0, likes - 1) WHERE id = #{id}
+    </update>
+
+    <select id="checkUserLiked" resultType="int">
+        SELECT COUNT(*)
+        FROM board_post_likes
+        WHERE user_id = #{userId}
+          AND post_id = #{postId}
+    </select>
+
+    <insert id="insertUserLike">
+        INSERT IGNORE INTO board_post_likes (user_id, post_id)
+        VALUES (#{userId}, #{postId})
+    </insert>
+
+    <delete id="deleteUserLike">
+        DELETE FROM board_post_likes
+        WHERE user_id = #{userId}
+          AND post_id = #{postId}
+    </delete>
+
+    <update id="incrementCommentCount">
+        UPDATE board_posts SET comment_count = comment_count + 1 WHERE id = #{id}
+    </update>
+
+    <update id="decrementCommentCount">
+        UPDATE board_posts SET comment_count = GREATEST(0, comment_count - 1) WHERE id = #{id}
+    </update>
+
+    <select id="findCommentsByPostId" resultMap="commentResultMap">
+        SELECT
+            bc.id,
+            bc.post_id,
+            bc.author_id,
+            u.display_name AS author,
+            bc.content,
+            bc.likes,
+            bc.created_at,
+            bc.updated_at
+        FROM board_comments bc
+        JOIN users u ON u.user_id = bc.author_id
+        WHERE bc.post_id = #{postId}
+        ORDER BY bc.created_at ASC
+    </select>
+
+    <select id="findCommentById" resultMap="commentResultMap">
+        SELECT
+            bc.id,
+            bc.post_id,
+            bc.author_id,
+            u.display_name AS author,
+            bc.content,
+            bc.likes,
+            bc.created_at,
+            bc.updated_at
+        FROM board_comments bc
+        JOIN users u ON u.user_id = bc.author_id
+        WHERE bc.id = #{id}
+    </select>
+
+    <insert id="insertComment" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO board_comments (
+            post_id,
+            author_id,
+            content,
+            likes,
+            created_at
+        ) VALUES (
+            #{postId},
+            #{authorId},
+            #{content},
+            0,
+            #{createdAt}
+        )
+    </insert>
+
+    <delete id="deleteComment">
+        DELETE FROM board_comments WHERE id = #{id}
+    </delete>
+
+    <update id="incrementCommentLikes">
+        UPDATE board_comments SET likes = likes + 1 WHERE id = #{id}
+    </update>
+
+    <update id="decrementCommentLikes">
+        UPDATE board_comments SET likes = GREATEST(0, likes - 1) WHERE id = #{id}
+    </update>
+
+    <select id="checkUserCommentLiked" resultType="int">
+        SELECT COUNT(*)
+        FROM board_comment_likes
+        WHERE user_id = #{userId}
+          AND comment_id = #{commentId}
+    </select>
+
+    <insert id="insertUserCommentLike">
+        INSERT IGNORE INTO board_comment_likes (user_id, comment_id)
+        VALUES (#{userId}, #{commentId})
+    </insert>
+
+    <delete id="deleteUserCommentLike">
+        DELETE FROM board_comment_likes
+        WHERE user_id = #{userId}
+          AND comment_id = #{commentId}
+    </delete>
+
+</mapper>

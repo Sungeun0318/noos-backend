@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.auth.mapper.AuthMapper">
+
+    <!-- 해시된 비밀번호로 로컬 계정 생성 -->
+    <insert id="insertUser">
+        INSERT INTO users
+        (
+            login_id,
+            password_hash,
+            display_name,
+            provider,
+            created_at
+        )
+        VALUES
+        (
+            #{loginId},
+            #{passwordHash},
+            #{displayName},
+            'local',
+            NOW()
+        )
+    </insert>
+
+    <!-- 비밀번호 검증에 사용할 로컬 계정 조회 -->
+    <select id="findLocalUserByLoginId" resultType="com.noos.backend.auth.dto.User">
+        SELECT
+            user_id AS userId,
+            login_id AS loginId,
+            password_hash AS passwordHash,
+            display_name AS displayName,
+            provider AS provider,
+            provider_id AS providerId,
+            COALESCE(role, 'USER') AS role,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM users
+        WHERE login_id = #{loginId}
+          AND provider = 'local'
+    </select>
+
+    <!-- 소셜 로그인 계정 저장 또는 업데이트 -->
+    <insert id="saveOrUpdateOAuthUser">
+        INSERT INTO users (
+            login_id,
+            display_name,
+            provider,
+            provider_id,
+            created_at
+        ) VALUES (
+            #{loginId},
+            #{displayName},
+            #{provider},
+            #{providerId},
+            NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            display_name = #{displayName},
+            updated_at = NOW()
+    </insert>
+
+    <!-- 기존 소셜 로그인 계정 조회 -->
+    <select id="findByProviderInfo" resultType="com.noos.backend.auth.dto.User">
+        SELECT
+            user_id AS userId,
+            login_id AS loginId,
+            password_hash AS passwordHash,
+            display_name AS displayName,
+            provider AS provider,
+            provider_id AS providerId,
+            COALESCE(role, 'USER') AS role,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM users
+        WHERE provider = #{provider}
+          AND provider_id = #{providerId}
+    </select>
+
+</mapper>

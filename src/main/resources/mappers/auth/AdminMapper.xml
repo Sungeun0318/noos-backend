@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.auth.mapper.AdminMapper">
+
+    <select id="findAllUsers" resultType="com.noos.backend.auth.dto.User">
+        SELECT
+            user_id AS userId,
+            login_id AS loginId,
+            password_hash AS passwordHash,
+            display_name AS displayName,
+            provider,
+            provider_id AS providerId,
+            COALESCE(role, 'USER') AS role,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM users
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="searchUsers" resultType="com.noos.backend.auth.dto.User">
+        SELECT
+            user_id AS userId,
+            login_id AS loginId,
+            password_hash AS passwordHash,
+            display_name AS displayName,
+            provider,
+            provider_id AS providerId,
+            COALESCE(role, 'USER') AS role,
+            created_at AS createdAt,
+            updated_at AS updatedAt
+        FROM users
+        <where>
+            <if test="keyword != null and keyword != ''">
+                <choose>
+                    <when test="type == 'loginId'">
+                        login_id LIKE CONCAT('%', #{keyword}, '%')
+                    </when>
+                    <when test="type == 'displayName'">
+                        display_name LIKE CONCAT('%', #{keyword}, '%')
+                    </when>
+                    <when test="type == 'role'">
+                        COALESCE(role, 'USER') LIKE CONCAT('%', #{keyword}, '%')
+                    </when>
+                    <otherwise>
+                        (
+                            login_id LIKE CONCAT('%', #{keyword}, '%')
+                            OR display_name LIKE CONCAT('%', #{keyword}, '%')
+                            OR COALESCE(role, 'USER') LIKE CONCAT('%', #{keyword}, '%')
+                        )
+                    </otherwise>
+                </choose>
+            </if>
+            <if test="startDate != null and startDate != ''">
+                AND created_at &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND created_at &lt;= CONCAT(#{endDate}, ' 23:59:59')
+            </if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
+    <update id="updateUser">
+        UPDATE users
+        <set>
+            <if test="request.displayName != null and request.displayName != ''">
+                display_name = #{request.displayName},
+            </if>
+            <if test="request.role != null and request.role != ''">
+                role = #{request.role},
+            </if>
+            <if test="request.password != null and request.password != ''">
+                password_hash = #{request.password},
+            </if>
+            updated_at = NOW()
+        </set>
+        WHERE user_id = #{userId}
+    </update>
+
+    <delete id="deleteUser">
+        DELETE FROM users
+        WHERE user_id = #{userId}
+    </delete>
+
+</mapper>

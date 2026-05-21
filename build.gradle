@@ -1,0 +1,54 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.3'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.noos'
+version = '0.0.1-SNAPSHOT'
+description = 'backend'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+
+    // Spring Boot 기본 웹 서버 (Controller / REST API 사용)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+
+    // MyBatis 사용 (Mapper + SQL 실행)
+    implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:3.0.3'
+
+    // MySQL 데이터베이스 드라이버
+    runtimeOnly 'com.mysql:mysql-connector-j'
+
+    // Lombok (getter, setter 자동 생성)
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // 테스트 기본 라이브러리
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+    // Spring Security와 OAuth2 Client
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
