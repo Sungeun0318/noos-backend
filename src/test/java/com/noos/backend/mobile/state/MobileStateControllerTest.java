@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.noos.backend.ai.dto.EegRecognitionRequest;
 import com.noos.backend.ai.dto.PlanetRecommendationRequest;
 import com.noos.backend.ai.service.NoosAiService;
 import java.util.List;
@@ -45,6 +46,18 @@ class MobileStateControllerTest {
                         "recommendedPlanet", "Mars",
                         "alternates", List.of("Earth", "Neptune"),
                         "confidence", 0.82
+                ));
+        when(noosAiService.recognizeFromSummary(any(EegRecognitionRequest.class)))
+                .thenReturn(Map.of(
+                        "currentState", Map.of(
+                                "focus_readiness", 0.9,
+                                "stress_load", 0.1,
+                                "fatigue_risk", 0.2,
+                                "relaxation_level", 0.8,
+                                "cortical_arousal", 0.7,
+                                "mental_workload", 0.2
+                        ),
+                        "stateLabel", "eeg calm focus"
                 ));
     }
 
@@ -92,19 +105,23 @@ class MobileStateControllerTest {
     }
 
     @Test
-    void eegPayloadIsAcceptedButIgnoredInBe06() throws Exception {
+    void surveyWithEegReturnsHybridWhenSignalQualityPasses() throws Exception {
         String request = objectMapper.writeValueAsString(Map.of(
                 "survey", Map.of(
-                        "focus", 0.6,
+                        "focus", 0.5,
                         "stress", 0.2,
                         "fatigue", 0.2,
-                        "relaxation", 0.7
+                        "relaxation", 0.6
                 ),
                 "eeg", Map.of(
                         "deviceType", "Muse S Athena",
                         "deviceId", "muse_test",
-                        "signalQuality", 0.9,
-                        "bands", Map.of("alpha", 1.0)
+                        "measuredAt", "2026-05-22T00:00:00Z",
+                        "measurementDurationSec", 60,
+                        "sampleRateHz", 256,
+                        "sampleCount", 15360,
+                        "signalQuality", 0.84,
+                        "bands", fullBands()
                 )
         ));
 
@@ -113,9 +130,11 @@ class MobileStateControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.source").value("survey"))
-                .andExpect(jsonPath("$.weight.survey").value(1.0))
-                .andExpect(jsonPath("$.weight.eeg").value(0.0));
+                .andExpect(jsonPath("$.source").value("hybrid"))
+                .andExpect(jsonPath("$.stateLabel").value("eeg calm focus"))
+                .andExpect(jsonPath("$.weight.eeg").value(0.6))
+                .andExpect(jsonPath("$.weight.survey").value(0.4))
+                .andExpect(jsonPath("$.currentState.focus_readiness").value(0.74));
     }
 
     @Test
@@ -162,7 +181,135 @@ class MobileStateControllerTest {
                 .containsEntry("mental_workload", 0.30000000000000004);
     }
 
+    @Test
+    void lowQualityEegFallsBackToSurveyOnly() throws Exception {
+        String request = objectMapper.writeValueAsString(Map.of(
+                "survey", Map.of(
+                        "focus", 0.6,
+                        "stress", 0.2,
+                        "fatigue", 0.2,
+                        "relaxation", 0.7
+                ),
+                "eeg", Map.of(
+                        "deviceType", "Muse S Athena",
+                        "signalQuality", 0.2,
+                        "bands", fullBands()
+                )
+        ));
+
+        mockMvc.perform(post("/api/mobile/state/measure")
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").value("survey"))
+                .andExpect(jsonPath("$.weight.survey").value(1.0))
+                .andExpect(jsonPath("$.weight.eeg").value(0.0));
+    }
+
+    @Test
+    void surveyOnlyRegressionRemainsSurveySource() throws Exception {
+        mockMvc.perform(post("/api/mobile/state/measure")
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(Map.of(
+                                "focus", 0.6,
+                                "stress", 0.2,
+                                "fatigue", 0.2,
+                                "relaxation", 0.7
+                        ))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").value("survey"))
+                .andExpect(jsonPath("$.weight.survey").value(1.0))
+                .andExpect(jsonPath("$.weight.eeg").value(0.0));
+    }
+
+    @Test
+    void eegPayloadIsPassedToRecognizeFromSummary() throws Exception {
+        String request = objectMapper.writeValueAsString(Map.of(
+                "survey", Map.of(
+                        "focus", 0.6,
+                        "stress", 0.2,
+                        "fatigue", 0.2,
+                        "relaxation", 0.7
+                ),
+                "eeg", Map.of(
+                        "deviceType", "Muse S Athena",
+                        "measuredAt", "2026-05-22T00:00:00Z",
+                        "measurementDurationSec", 60,
+                        "sampleRateHz", 256,
+                        "sampleCount", 15360,
+                        "signalQuality", 0.84,
+                        "bands", fullBands()
+                )
+        ));
+
+        mockMvc.perform(post("/api/mobile/state/measure")
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<EegRecognitionRequest> captor = ArgumentCaptor.forClass(EegRecognitionRequest.class);
+        org.mockito.Mockito.verify(noosAiService).recognizeFromSummary(captor.capture());
+        EegRecognitionRequest eegRequest = captor.getValue();
+
+        assertThat(eegRequest.deviceType()).isEqualTo("Muse S Athena");
+        assertThat(eegRequest.measuredAt()).isEqualTo("2026-05-22T00:00:00Z");
+        assertThat(eegRequest.measurementDurationSec()).isEqualTo(60);
+        assertThat(eegRequest.sampleRateHz()).isEqualTo(256);
+        assertThat(eegRequest.sampleCount()).isEqualTo(15360);
+        assertThat(eegRequest.delta()).isEqualTo(12.3);
+        assertThat(eegRequest.theta()).isEqualTo(18.4);
+        assertThat(eegRequest.alpha()).isEqualTo(28.2);
+        assertThat(eegRequest.beta()).isEqualTo(31.5);
+        assertThat(eegRequest.gamma()).isEqualTo(9.6);
+    }
+
+    @Test
+    void missingEegBandDefaultsToZero() throws Exception {
+        String request = objectMapper.writeValueAsString(Map.of(
+                "survey", Map.of(
+                        "focus", 0.6,
+                        "stress", 0.2,
+                        "fatigue", 0.2,
+                        "relaxation", 0.7
+                ),
+                "eeg", Map.of(
+                        "deviceType", "Muse S Athena",
+                        "signalQuality", 0.84,
+                        "bands", Map.of(
+                                "delta", 12.3,
+                                "theta", 18.4,
+                                "alpha", 28.2,
+                                "beta", 31.5
+                        )
+                )
+        ));
+
+        mockMvc.perform(post("/api/mobile/state/measure")
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").value("hybrid"));
+
+        ArgumentCaptor<EegRecognitionRequest> captor = ArgumentCaptor.forClass(EegRecognitionRequest.class);
+        org.mockito.Mockito.verify(noosAiService).recognizeFromSummary(captor.capture());
+        assertThat(captor.getValue().gamma()).isEqualTo(0.0);
+    }
+
     private String body(Map<String, Object> survey) throws Exception {
         return objectMapper.writeValueAsString(Map.of("survey", survey));
+    }
+
+    private Map<String, Double> fullBands() {
+        return Map.of(
+                "delta", 12.3,
+                "theta", 18.4,
+                "alpha", 28.2,
+                "beta", 31.5,
+                "gamma", 9.6
+        );
     }
 }
