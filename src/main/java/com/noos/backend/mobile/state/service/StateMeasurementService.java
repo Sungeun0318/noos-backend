@@ -2,8 +2,10 @@ package com.noos.backend.mobile.state.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.noos.backend.ai.dto.EegRecognitionRequest;
 import com.noos.backend.ai.dto.PlanetRecommendationRequest;
 import com.noos.backend.ai.service.NoosAiService;
+import com.noos.backend.mobile.state.dto.EegInput;
 import com.noos.backend.mobile.state.dto.MeasureRequest;
 import com.noos.backend.mobile.state.dto.MeasureResponse;
 import com.noos.backend.mobile.state.dto.StateMeasurementRow;
@@ -16,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -26,19 +29,49 @@ public class StateMeasurementService {
     private final StateMeasurementMapper mapper;
     private final NoosAiService noosAiService;
     private final ObjectMapper objectMapper;
+    private final double configuredSurveyWeight;
+    private final double configuredEegWeight;
+    private final double minSignalQuality;
 
     public StateMeasurementService(StateMeasurementMapper mapper,
                                    NoosAiService noosAiService,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   @Value("${noos.mobile.measure.weight.survey:0.4}") double configuredSurveyWeight,
+                                   @Value("${noos.mobile.measure.weight.eeg:0.6}") double configuredEegWeight,
+                                   @Value("${noos.mobile.measure.eeg.min-signal-quality:0.3}") double minSignalQuality) {
         this.mapper = mapper;
         this.noosAiService = noosAiService;
         this.objectMapper = objectMapper;
+        this.configuredSurveyWeight = configuredSurveyWeight;
+        this.configuredEegWeight = configuredEegWeight;
+        this.minSignalQuality = minSignalQuality;
     }
 
     public MeasureResponse measure(MeasureRequest request, String deviceId) {
         SurveyValues survey = normalize(request.survey());
-        Map<String, Double> currentState = surveyToState(survey);
+        Map<String, Double> surveyState = surveyToState(survey);
+        Map<String, Double> currentState = surveyState;
         String stateLabel = stateLabel(survey);
+        String source = "survey";
+        double effectiveSurveyWeight = 1.0;
+        double effectiveEegWeight = 0.0;
+        Map<String, Object> recognitionResult = Map.of();
+
+        if (passesQualityGate(request.eeg())) {
+            recognitionResult = noosAiService.recognizeFromSummary(toEegRecognitionRequest(request.eeg()));
+            Map<String, Double> eegState = extractCurrentState(recognitionResult.get("currentState"));
+            if (!eegState.isEmpty()) {
+                effectiveEegWeight = configuredEegWeight * Math.min(1.0, request.eeg().signalQuality() / 0.8);
+                effectiveSurveyWeight = 1.0 - effectiveEegWeight;
+                currentState = combineStates(surveyState, eegState, effectiveSurveyWeight, effectiveEegWeight);
+                String eegStateLabel = stringValue(recognitionResult.get("stateLabel"));
+                if (eegStateLabel != null) {
+                    stateLabel = eegStateLabel;
+                }
+                source = "hybrid";
+            }
+        }
+
         Map<String, Object> currentStatePayload = new LinkedHashMap<>(currentState);
 
         Map<String, Object> recommendation = noosAiService.recommendPlanet(new PlanetRecommendationRequest(
@@ -63,18 +96,18 @@ public class StateMeasurementService {
         StateMeasurementRow row = new StateMeasurementRow();
         row.setId(measurementId);
         row.setDeviceId(deviceId);
-        row.setSource("survey");
+        row.setSource(source);
         row.setSurveyJson(writeJson(survey.toMap()));
-        row.setEegJson(null);
-        row.setEegDeviceType(null);
-        row.setSignalQuality(null);
+        row.setEegJson(request.eeg() == null ? null : writeJson(request.eeg()));
+        row.setEegDeviceType(request.eeg() == null ? null : request.eeg().deviceType());
+        row.setSignalQuality(request.eeg() == null ? null : request.eeg().signalQuality());
         row.setStateLabel(stateLabel);
         row.setCurrentState(writeJson(currentState));
         row.setRecommendedPlanet(recommendedPlanet);
         row.setAlternatesJson(writeJson(alternates));
         row.setConfidence(confidence);
-        row.setWeightSurvey(1.0);
-        row.setWeightEeg(0.0);
+        row.setWeightSurvey(effectiveSurveyWeight);
+        row.setWeightEeg(effectiveEegWeight);
         row.setMeasuredAt(now);
         row.setCreatedAt(now);
         mapper.insert(row);
@@ -86,8 +119,8 @@ public class StateMeasurementService {
                 recommendedPlanet,
                 alternates,
                 confidence,
-                "survey",
-                new WeightInfo(1.0, 0.0),
+                source,
+                new WeightInfo(effectiveSurveyWeight, effectiveEegWeight),
                 now
         );
     }
@@ -137,6 +170,81 @@ public class StateMeasurementService {
         return "neutral";
     }
 
+    private boolean passesQualityGate(EegInput eeg) {
+        if (eeg == null || eeg.bands() == null || eeg.bands().isEmpty()
+                || eeg.signalQuality() == null || eeg.signalQuality() < minSignalQuality) {
+            return false;
+        }
+        return true;
+    }
+
+    private EegRecognitionRequest toEegRecognitionRequest(EegInput eeg) {
+        return new EegRecognitionRequest(
+                null,
+                eeg.deviceType(),
+                eeg.measuredAt() == null ? null : eeg.measuredAt().toString(),
+                eeg.measurementDurationSec(),
+                eeg.sampleRateHz(),
+                eeg.sampleCount(),
+                dominantBand(eeg.bands()),
+                bandValue(eeg, "delta"),
+                bandValue(eeg, "theta"),
+                bandValue(eeg, "alpha"),
+                bandValue(eeg, "beta"),
+                bandValue(eeg, "gamma")
+        );
+    }
+
+    private Double bandValue(EegInput eeg, String key) {
+        return eeg.bands() == null ? 0.0 : eeg.bands().getOrDefault(key, 0.0);
+    }
+
+    private String dominantBand(Map<String, Double> bands) {
+        if (bands == null || bands.isEmpty()) {
+            return null;
+        }
+        return bands.entrySet().stream()
+                .filter(entry -> entry.getValue() != null)
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
+    }
+
+    private Map<String, Double> extractCurrentState(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Double> state = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (entry.getKey() instanceof String key) {
+                Double number = doubleValue(entry.getValue());
+                if (number != null) {
+                    state.put(key, clamp(number));
+                }
+            }
+        }
+        return state;
+    }
+
+    private Map<String, Double> combineStates(Map<String, Double> surveyState,
+                                              Map<String, Double> eegState,
+                                              double surveyWeight,
+                                              double eegWeight) {
+        Map<String, Double> combined = new LinkedHashMap<>();
+        for (String axis : List.of(
+                "focus_readiness",
+                "stress_load",
+                "fatigue_risk",
+                "relaxation_level",
+                "cortical_arousal",
+                "mental_workload")) {
+            double surveyValue = surveyState.getOrDefault(axis, 0.5);
+            Double eegValue = eegState.get(axis);
+            combined.put(axis, eegValue == null ? surveyValue : (surveyValue * surveyWeight) + (eegValue * eegWeight));
+        }
+        return combined;
+    }
+
     private String writeJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -172,6 +280,14 @@ public class StateMeasurementService {
             return Double.parseDouble(string);
         }
         return null;
+    }
+
+    private String stringValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String string = String.valueOf(value);
+        return string.isBlank() ? null : string;
     }
 
     private List<String> stringList(Object value) {
