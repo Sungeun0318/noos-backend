@@ -2,6 +2,7 @@ package com.noos.backend.mobile.session.service;
 
 import com.noos.backend.ai.dto.InterventionGenerationRequest;
 import com.noos.backend.ai.service.NoosAiService;
+import com.noos.backend.lighting.service.WizLightingService;
 import com.noos.backend.mobile.audio.service.AudioRegistryService;
 import com.noos.backend.mobile.session.mapper.MobileSessionMapper;
 import java.net.URLDecoder;
@@ -25,13 +26,16 @@ public class GenerationWorker {
     private final MobileSessionMapper sessionMapper;
     private final NoosAiService noosAiService;
     private final AudioRegistryService audioRegistry;
+    private final WizLightingService wizLightingService;
 
     public GenerationWorker(MobileSessionMapper sessionMapper,
                             NoosAiService noosAiService,
-                            AudioRegistryService audioRegistry) {
+                            AudioRegistryService audioRegistry,
+                            WizLightingService wizLightingService) {
         this.sessionMapper = sessionMapper;
         this.noosAiService = noosAiService;
         this.audioRegistry = audioRegistry;
+        this.wizLightingService = wizLightingService;
     }
 
     @Async("generationExecutor")
@@ -66,7 +70,13 @@ public class GenerationWorker {
 
             Integer audioDuration = integerValue(result.get("audioDurationSec"));
             String audioId = audioRegistry.register(audioPath, sessionId, "audio/mpeg", audioDuration);
-            String lightingJobId = ctx.lightingEnabled() ? extractLightingJobId(result) : null;
+            String lightingJobId;
+            if (ctx.lightingEnabled()) {
+                lightingJobId = extractLightingJobId(result);
+            } else {
+                stopLightingAfterDisabledSession(sessionId);
+                lightingJobId = null;
+            }
 
             sessionMapper.markReady(sessionId, audioId, lightingJobId, Instant.now());
         } catch (Exception e) {
@@ -95,6 +105,14 @@ public class GenerationWorker {
     String extractLightingJobId(Map<String, Object> result) {
         Map<String, Object> wizLighting = mapValue(result.get("wizLighting"));
         return stringValue(wizLighting.get("jobId"));
+    }
+
+    private void stopLightingAfterDisabledSession(String sessionId) {
+        try {
+            wizLightingService.stopActiveJob();
+        } catch (Exception stopErr) {
+            log.warn("failed to stop lighting after lighting_enabled=false session {}", sessionId, stopErr);
+        }
     }
 
     private String extractPathFromAceStepEntries(Map<String, Object> interventionResult) {
