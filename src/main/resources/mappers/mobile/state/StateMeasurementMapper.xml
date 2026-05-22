@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.state.mapper.StateMeasurementMapper">
+
+    <resultMap id="StateMeasurementRowMap" type="com.noos.backend.mobile.state.dto.StateMeasurementRow">
+        <id property="id" column="id" />
+        <result property="userId" column="user_id" />
+        <result property="deviceId" column="device_id" />
+        <result property="source" column="source" />
+        <result property="surveyJson" column="survey_json" />
+        <result property="eegJson" column="eeg_json" />
+        <result property="eegDeviceType" column="eeg_device_type" />
+        <result property="signalQuality" column="signal_quality" />
+        <result property="stateLabel" column="state_label" />
+        <result property="currentState" column="current_state" />
+        <result property="recommendedPlanet" column="recommended_planet" />
+        <result property="alternatesJson" column="alternates_json" />
+        <result property="confidence" column="confidence" />
+        <result property="weightSurvey" column="weight_survey" />
+        <result property="weightEeg" column="weight_eeg" />
+        <result property="measuredAt" column="measured_at" />
+        <result property="createdAt" column="created_at" />
+    </resultMap>
+
+    <insert id="insert" parameterType="com.noos.backend.mobile.state.dto.StateMeasurementRow">
+        INSERT INTO state_measurements (
+            id,
+            user_id,
+            device_id,
+            source,
+            survey_json,
+            eeg_json,
+            eeg_device_type,
+            signal_quality,
+            state_label,
+            current_state,
+            recommended_planet,
+            alternates_json,
+            confidence,
+            weight_survey,
+            weight_eeg,
+            measured_at,
+            created_at
+        ) VALUES (
+            #{id},
+            #{userId},
+            #{deviceId},
+            #{source},
+            CAST(#{surveyJson} AS JSON),
+            CAST(#{eegJson} AS JSON),
+            #{eegDeviceType},
+            #{signalQuality},
+            #{stateLabel},
+            CAST(#{currentState} AS JSON),
+            #{recommendedPlanet},
+            CAST(#{alternatesJson} AS JSON),
+            #{confidence},
+            #{weightSurvey},
+            #{weightEeg},
+            #{measuredAt},
+            #{createdAt}
+        )
+    </insert>
+
+    <select id="findById" resultMap="StateMeasurementRowMap">
+        SELECT
+            id,
+            user_id,
+            device_id,
+            source,
+            survey_json,
+            eeg_json,
+            eeg_device_type,
+            signal_quality,
+            state_label,
+            current_state,
+            recommended_planet,
+            alternates_json,
+            confidence,
+            weight_survey,
+            weight_eeg,
+            measured_at,
+            created_at
+        FROM state_measurements
+        WHERE id = #{id}
+    </select>
+
+</mapper>
