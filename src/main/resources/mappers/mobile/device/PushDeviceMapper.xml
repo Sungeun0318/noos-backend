@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.device.mapper.PushDeviceMapper">
+
+    <resultMap id="PushDeviceRowMap" type="com.noos.backend.mobile.device.dto.PushDeviceRow">
+        <id property="id" column="id" />
+        <result property="deviceId" column="device_id" />
+        <result property="userId" column="user_id" />
+        <result property="platform" column="platform" />
+        <result property="provider" column="provider" />
+        <result property="token" column="token" />
+        <result property="appVersion" column="app_version" />
+        <result property="locale" column="locale" />
+        <result property="active" column="active" />
+        <result property="lastSeenAt" column="last_seen_at" />
+        <result property="createdAt" column="created_at" />
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        device_id,
+        user_id,
+        platform,
+        provider,
+        token,
+        app_version,
+        locale,
+        active,
+        last_seen_at,
+        created_at
+    </sql>
+
+    <insert id="upsert" parameterType="com.noos.backend.mobile.device.dto.PushDeviceRow">
+        INSERT INTO push_devices (
+            id,
+            device_id,
+            user_id,
+            platform,
+            provider,
+            token,
+            app_version,
+            locale,
+            active,
+            last_seen_at,
+            created_at
+        ) VALUES (
+            #{id},
+            #{deviceId},
+            #{userId},
+            #{platform},
+            #{provider},
+            #{token},
+            #{appVersion},
+            #{locale},
+            #{active},
+            #{lastSeenAt},
+            #{createdAt}
+        )
+        ON DUPLICATE KEY UPDATE
+            token = #{token},
+            platform = #{platform},
+            app_version = #{appVersion},
+            locale = #{locale},
+            active = 1,
+            last_seen_at = NOW(),
+            user_id = COALESCE(#{userId}, user_id)
+    </insert>
+
+    <update id="deactivateByDeviceId">
+        UPDATE push_devices
+        SET active = 0
+        WHERE device_id = #{deviceId}
+    </update>
+
+    <select id="findActive" resultMap="PushDeviceRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM push_devices
+        WHERE active = 1
+          AND (
+              device_id = #{deviceId}
+              <if test="userId != null">
+              OR user_id = #{userId}
+              </if>
+          )
+    </select>
+
+    <update id="deactivateById">
+        UPDATE push_devices
+        SET active = 0
+        WHERE id = #{id}
+    </update>
+
+</mapper>

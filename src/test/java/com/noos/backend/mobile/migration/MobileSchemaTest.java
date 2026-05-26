@@ -19,14 +19,15 @@ class MobileSchemaTest {
             "state_measurements",
             "session_feedback",
             "lighting_jobs",
-            "idempotency_keys"
+            "idempotency_keys",
+            "push_devices"
     );
 
     @Autowired
     private JdbcTemplate jdbc;
 
     @Test
-    void all_six_mobile_tables_exist() {
+    void all_mobile_tables_exist() {
         for (String table : MOBILE_TABLES) {
             Integer count = jdbc.queryForObject("""
                     SELECT COUNT(*)
