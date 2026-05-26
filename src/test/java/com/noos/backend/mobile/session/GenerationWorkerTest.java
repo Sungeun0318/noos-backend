@@ -3,6 +3,7 @@ package com.noos.backend.mobile.session;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,6 +13,7 @@ import com.noos.backend.ai.service.NoosAiService;
 import com.noos.backend.lighting.service.WizLightingService;
 import com.noos.backend.mobile.audio.dto.GeneratedAudioRow;
 import com.noos.backend.mobile.audio.mapper.GeneratedAudioMapper;
+import com.noos.backend.mobile.device.service.NotificationService;
 import com.noos.backend.mobile.session.dto.MobileSessionRow;
 import com.noos.backend.mobile.session.mapper.MobileSessionMapper;
 import com.noos.backend.mobile.session.service.GenerationContext;
@@ -46,6 +48,9 @@ class GenerationWorkerTest {
 
     @MockBean
     private WizLightingService wizLightingService;
+
+    @MockBean
+    private NotificationService notificationService;
 
     @TempDir
     private Path tempDir;
@@ -88,6 +93,12 @@ class GenerationWorkerTest {
         assertThat(audioRow).isNotNull();
         assertThat(audioRow.getSessionId()).isEqualTo(sessionId);
         assertThat(audioRow.getStorageRef()).isEqualTo(audioFile.toString());
+        verify(notificationService, timeout(1000)).notifySessionReady(
+                "dev_generation_worker_test",
+                null,
+                sessionId,
+                "Mars"
+        );
     }
 
     @Test
@@ -134,6 +145,35 @@ class GenerationWorkerTest {
         assertThat(row.getLightingJobId()).isEqualTo("lighting_test");
     }
 
+    @Test
+    void workerMarksSessionFailedAndNotifiesFailure() throws Exception {
+        String sessionId = "session_worker_" + System.nanoTime();
+        insertQueuedSession(sessionId, true);
+
+        when(noosAiService.generateIntervention(any(InterventionGenerationRequest.class)))
+                .thenThrow(new IllegalStateException("generation unavailable"));
+
+        worker.run(sessionId, new GenerationContext(
+                "Mars",
+                60,
+                Map.of("focus_readiness", 0.5),
+                "calm focus",
+                "집중",
+                "hybrid",
+                true
+        ));
+
+        MobileSessionRow row = waitForStatus(sessionId, "failed");
+        assertThat(row.getStatus()).isEqualTo("failed");
+        assertThat(row.getErrorCode()).isEqualTo("GENERATION_FAILED");
+        verify(notificationService, timeout(1000)).notifySessionFailed(
+                "dev_generation_worker_test",
+                null,
+                sessionId,
+                "Mars"
+        );
+    }
+
     private Path createAudioFile() throws Exception {
         byte[] data = new byte[1024];
         for (int i = 0; i < data.length; i++) {
@@ -178,9 +218,13 @@ class GenerationWorkerTest {
     }
 
     private MobileSessionRow waitForReady(String sessionId) throws Exception {
+        return waitForStatus(sessionId, "ready");
+    }
+
+    private MobileSessionRow waitForStatus(String sessionId, String status) throws Exception {
         for (int i = 0; i < 40; i++) {
             MobileSessionRow row = sessionMapper.findById(sessionId);
-            if (row != null && "ready".equals(row.getStatus())) {
+            if (row != null && status.equals(row.getStatus())) {
                 return row;
             }
             Thread.sleep(100);

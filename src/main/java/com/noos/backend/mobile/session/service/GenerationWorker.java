@@ -4,6 +4,8 @@ import com.noos.backend.ai.dto.InterventionGenerationRequest;
 import com.noos.backend.ai.service.NoosAiService;
 import com.noos.backend.lighting.service.WizLightingService;
 import com.noos.backend.mobile.audio.service.AudioRegistryService;
+import com.noos.backend.mobile.device.service.NotificationService;
+import com.noos.backend.mobile.session.dto.MobileSessionRow;
 import com.noos.backend.mobile.session.mapper.MobileSessionMapper;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -27,15 +29,18 @@ public class GenerationWorker {
     private final NoosAiService noosAiService;
     private final AudioRegistryService audioRegistry;
     private final WizLightingService wizLightingService;
+    private final NotificationService notificationService;
 
     public GenerationWorker(MobileSessionMapper sessionMapper,
                             NoosAiService noosAiService,
                             AudioRegistryService audioRegistry,
-                            WizLightingService wizLightingService) {
+                            WizLightingService wizLightingService,
+                            NotificationService notificationService) {
         this.sessionMapper = sessionMapper;
         this.noosAiService = noosAiService;
         this.audioRegistry = audioRegistry;
         this.wizLightingService = wizLightingService;
+        this.notificationService = notificationService;
     }
 
     @Async("generationExecutor")
@@ -79,10 +84,39 @@ public class GenerationWorker {
             }
 
             sessionMapper.markReady(sessionId, audioId, lightingJobId, Instant.now());
+            notifyReady(sessionId);
         } catch (Exception e) {
             log.error("generation failed for {}", sessionId, e);
             String code = isAceStepFailure(e) ? "ACE_STEP_DOWN" : "GENERATION_FAILED";
             sessionMapper.markFailed(sessionId, code, e.getMessage());
+            notifyFailed(sessionId, ctx.planet());
+        }
+    }
+
+    private void notifyReady(String sessionId) {
+        try {
+            MobileSessionRow row = sessionMapper.findById(sessionId);
+            if (row == null) {
+                log.warn("push skipped: session not found after ready {}", sessionId);
+                return;
+            }
+            notificationService.notifySessionReady(row.getDeviceId(), row.getUserId(), sessionId, row.getPlanet());
+        } catch (Exception pushErr) {
+            log.warn("ready push failed after session marked ready {}", sessionId, pushErr);
+        }
+    }
+
+    private void notifyFailed(String sessionId, String fallbackPlanet) {
+        try {
+            MobileSessionRow row = sessionMapper.findById(sessionId);
+            if (row == null) {
+                log.warn("push skipped: session not found after failed {}", sessionId);
+                return;
+            }
+            String planet = row.getPlanet() == null ? fallbackPlanet : row.getPlanet();
+            notificationService.notifySessionFailed(row.getDeviceId(), row.getUserId(), sessionId, planet);
+        } catch (Exception pushErr) {
+            log.warn("failed push failed after session marked failed {}", sessionId, pushErr);
         }
     }
 
