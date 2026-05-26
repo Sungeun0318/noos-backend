@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.auth.mapper.MobileAuthMapper">
+
+    <resultMap id="MobileAuthTokenRowMap" type="com.noos.backend.mobile.auth.dto.MobileAuthTokenRow">
+        <id property="id" column="id" />
+        <result property="userId" column="user_id" />
+        <result property="deviceId" column="device_id" />
+        <result property="accessJti" column="access_jti" />
+        <result property="refreshToken" column="refresh_token" />
+        <result property="expiresAt" column="expires_at" />
+        <result property="revokedAt" column="revoked_at" />
+        <result property="createdAt" column="created_at" />
+        <result property="lastUsedAt" column="last_used_at" />
+    </resultMap>
+
+    <insert id="insert" parameterType="com.noos.backend.mobile.auth.dto.MobileAuthTokenRow">
+        INSERT INTO mobile_auth_tokens (
+            id,
+            user_id,
+            device_id,
+            access_jti,
+            refresh_token,
+            expires_at,
+            revoked_at,
+            created_at,
+            last_used_at
+        ) VALUES (
+            #{id},
+            #{userId},
+            #{deviceId},
+            #{accessJti},
+            #{refreshToken},
+            #{expiresAt},
+            #{revokedAt},
+            #{createdAt},
+            #{lastUsedAt}
+        )
+    </insert>
+
+    <select id="findActiveByRefreshToken" resultMap="MobileAuthTokenRowMap">
+        SELECT
+            id,
+            user_id,
+            device_id,
+            access_jti,
+            refresh_token,
+            expires_at,
+            revoked_at,
+            created_at,
+            last_used_at
+        FROM mobile_auth_tokens
+        WHERE refresh_token = #{refreshToken}
+          AND revoked_at IS NULL
+        LIMIT 1
+    </select>
+
+    <select id="findByAccessJti" resultMap="MobileAuthTokenRowMap">
+        SELECT
+            id,
+            user_id,
+            device_id,
+            access_jti,
+            refresh_token,
+            expires_at,
+            revoked_at,
+            created_at,
+            last_used_at
+        FROM mobile_auth_tokens
+        WHERE access_jti = #{accessJti}
+        LIMIT 1
+    </select>
+
+    <update id="revokeById">
+        UPDATE mobile_auth_tokens
+        SET revoked_at = NOW()
+        WHERE id = #{id}
+          AND revoked_at IS NULL
+    </update>
+
+    <update id="touchLastUsed">
+        UPDATE mobile_auth_tokens
+        SET last_used_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>

@@ -1,5 +1,6 @@
 package com.noos.backend.mobile.config;
 
+import com.noos.backend.mobile.auth.filter.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -14,7 +15,9 @@ public class MobileSecurityConfig {
 
     @Bean
     @Order(1)
-    public SecurityFilterChain mobileFilterChain(HttpSecurity http, DeviceContextFilter deviceContextFilter)
+    public SecurityFilterChain mobileFilterChain(HttpSecurity http,
+                                                 DeviceContextFilter deviceContextFilter,
+                                                 JwtAuthenticationFilter jwtAuthenticationFilter)
             throws Exception {
         http
                 .securityMatcher("/api/mobile/**")
@@ -23,9 +26,15 @@ public class MobileSecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/mobile/health").permitAll()
+                        .requestMatchers(
+                                "/api/mobile/auth/signup",
+                                "/api/mobile/auth/login",
+                                "/api/mobile/auth/refresh"
+                        ).permitAll()
                         .requestMatchers("/api/mobile/**").permitAll()
                 )
-                .addFilterBefore(deviceContextFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(deviceContextFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(jwtAuthenticationFilter, DeviceContextFilter.class);
 
         return http.build();
     }

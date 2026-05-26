@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.auth.mapper.UserDirectoryMapper">
+
+    <resultMap id="MobileUserRowMap" type="com.noos.backend.mobile.auth.dto.MobileUserRow">
+        <id property="userId" column="user_id" />
+        <result property="loginId" column="login_id" />
+        <result property="passwordHash" column="password_hash" />
+        <result property="displayName" column="display_name" />
+    </resultMap>
+
+    <insert id="insertLocalUser" parameterType="com.noos.backend.mobile.auth.dto.MobileUserRow"
+            useGeneratedKeys="true" keyProperty="userId" keyColumn="user_id">
+        INSERT INTO users (
+            login_id,
+            password_hash,
+            display_name,
+            provider,
+            created_at
+        ) VALUES (
+            #{loginId},
+            #{passwordHash},
+            #{displayName},
+            'local',
+            NOW()
+        )
+    </insert>
+
+    <select id="findLocalUserByLoginId" resultMap="MobileUserRowMap">
+        SELECT
+            user_id,
+            login_id,
+            password_hash,
+            display_name
+        FROM users
+        WHERE login_id = #{loginId}
+          AND provider = 'local'
+    </select>
+
+    <select id="findById" resultMap="MobileUserRowMap">
+        SELECT
+            user_id,
+            login_id,
+            password_hash,
+            display_name
+        FROM users
+        WHERE user_id = #{userId}
+    </select>
+
+</mapper>

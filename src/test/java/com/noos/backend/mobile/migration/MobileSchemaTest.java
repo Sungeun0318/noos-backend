@@ -20,7 +20,8 @@ class MobileSchemaTest {
             "session_feedback",
             "lighting_jobs",
             "idempotency_keys",
-            "push_devices"
+            "push_devices",
+            "mobile_auth_tokens"
     );
 
     @Autowired
