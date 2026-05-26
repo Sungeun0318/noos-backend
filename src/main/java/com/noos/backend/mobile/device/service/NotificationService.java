@@ -1,7 +1,9 @@
 package com.noos.backend.mobile.device.service;
 
 import com.google.firebase.messaging.FirebaseMessaging;
+import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.MessagingErrorCode;
 import com.noos.backend.mobile.device.dto.PushDeviceRow;
 import com.noos.backend.mobile.device.mapper.PushDeviceMapper;
 import java.util.Map;
@@ -54,9 +56,19 @@ public class NotificationService {
                 .build();
         try {
             fcm.send(message);
+        } catch (FirebaseMessagingException e) {
+            log.warn("push failed: deviceRegistrationId={}", target.getId(), e);
+            if (isInactiveToken(e)) {
+                pushDeviceMapper.deactivateById(target.getId());
+            }
         } catch (Exception e) {
             log.warn("push failed: deviceRegistrationId={}", target.getId(), e);
         }
+    }
+
+    private boolean isInactiveToken(FirebaseMessagingException e) {
+        MessagingErrorCode code = e.getMessagingErrorCode();
+        return code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT;
     }
 
     private Map<String, String> payload(String type, String sessionId, String planet) {
