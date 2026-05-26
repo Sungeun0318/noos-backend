@@ -1,5 +1,10 @@
 package com.noos.backend.mobile.device.service;
 
+import com.eatthepath.pushy.apns.ApnsClient;
+import com.eatthepath.pushy.apns.PushNotificationResponse;
+import com.eatthepath.pushy.apns.util.SimpleApnsPushNotification;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
@@ -7,9 +12,11 @@ import com.google.firebase.messaging.MessagingErrorCode;
 import com.noos.backend.mobile.device.dto.PushDeviceRow;
 import com.noos.backend.mobile.device.mapper.PushDeviceMapper;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -19,11 +26,20 @@ public class NotificationService {
 
     private final PushDeviceMapper pushDeviceMapper;
     private final ObjectProvider<FirebaseMessaging> firebaseMessagingProvider;
+    private final ObjectProvider<ApnsClient> apnsClientProvider;
+    private final ObjectMapper objectMapper;
+    private final String apnsTopic;
 
     public NotificationService(PushDeviceMapper pushDeviceMapper,
-                               ObjectProvider<FirebaseMessaging> firebaseMessagingProvider) {
+                               ObjectProvider<FirebaseMessaging> firebaseMessagingProvider,
+                               ObjectProvider<ApnsClient> apnsClientProvider,
+                               ObjectMapper objectMapper,
+                               @Value("${noos.mobile.push.apns.topic:}") String apnsTopic) {
         this.pushDeviceMapper = pushDeviceMapper;
         this.firebaseMessagingProvider = firebaseMessagingProvider;
+        this.apnsClientProvider = apnsClientProvider;
+        this.objectMapper = objectMapper;
+        this.apnsTopic = apnsTopic;
     }
 
     public void notifySessionReady(String deviceId, Long userId, String sessionId, String planet) {
@@ -36,15 +52,24 @@ public class NotificationService {
 
     private void notifySession(String deviceId, Long userId, String sessionId, String planet, String type) {
         FirebaseMessaging fcm = firebaseMessagingProvider.getIfAvailable();
-        if (fcm == null) {
-            log.info("push disabled: would notify {} {}", type, sessionId);
-            return;
-        }
+        ApnsClient apnsClient = apnsClientProvider.getIfAvailable();
 
         Map<String, String> payload = payload(type, sessionId, planet);
         for (PushDeviceRow target : pushDeviceMapper.findActive(deviceId, userId)) {
             if ("fcm".equals(target.getProvider())) {
-                sendFcm(fcm, target, payload);
+                if (fcm == null) {
+                    log.info("fcm disabled: would notify {} {}", type, sessionId);
+                } else {
+                    sendFcm(fcm, target, payload);
+                }
+            } else if ("apns".equals(target.getProvider())) {
+                if (apnsClient == null) {
+                    log.info("apns disabled: would notify {} {}", type, sessionId);
+                } else {
+                    sendApns(apnsClient, target, payload);
+                }
+            } else {
+                log.warn("push skipped: unsupported provider {}", target.getProvider());
             }
         }
     }
@@ -69,6 +94,50 @@ public class NotificationService {
     private boolean isInactiveToken(FirebaseMessagingException e) {
         MessagingErrorCode code = e.getMessagingErrorCode();
         return code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT;
+    }
+
+    private void sendApns(ApnsClient apnsClient, PushDeviceRow target, Map<String, String> payload) {
+        try {
+            SimpleApnsPushNotification notification = new SimpleApnsPushNotification(
+                    target.getToken(),
+                    apnsTopic,
+                    apnsPayload(payload)
+            );
+            PushNotificationResponse<SimpleApnsPushNotification> response = apnsClient
+                    .sendNotification(notification)
+                    .get(5, TimeUnit.SECONDS);
+            if (!response.isAccepted()) {
+                String reason = response.getRejectionReason().orElse("");
+                log.warn("apns push rejected: deviceRegistrationId={} reason={}", target.getId(), reason);
+                if (isInactiveApnsToken(reason)) {
+                    pushDeviceMapper.deactivateById(target.getId());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("apns push failed: deviceRegistrationId={}", target.getId(), e);
+        }
+    }
+
+    private String apnsPayload(Map<String, String> payload) throws JsonProcessingException {
+        Map<String, Object> root = Map.of(
+                "aps", Map.of(
+                        "alert", Map.of(
+                                "title", payload.get("title"),
+                                "body", payload.get("body")
+                        )
+                ),
+                "type", payload.get("type"),
+                "sessionId", payload.get("sessionId"),
+                "planet", payload.getOrDefault("planet", ""),
+                "title", payload.get("title"),
+                "body", payload.get("body"),
+                "deepLink", payload.get("deepLink")
+        );
+        return objectMapper.writeValueAsString(root);
+    }
+
+    private boolean isInactiveApnsToken(String reason) {
+        return "Unregistered".equals(reason) || "BadDeviceToken".equals(reason);
     }
 
     private Map<String, String> payload(String type, String sessionId, String planet) {
