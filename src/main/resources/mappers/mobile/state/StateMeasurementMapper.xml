@@ -88,4 +88,11 @@
         WHERE id = #{id}
     </select>
 
+    <update id="attachUserIdByDevice">
+        UPDATE state_measurements
+        SET user_id = #{userId}
+        WHERE user_id IS NULL
+          AND device_id = #{deviceId}
+    </update>
+
 </mapper>

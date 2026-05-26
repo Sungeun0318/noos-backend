@@ -25,17 +25,20 @@ public class MobileAuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
+    private final ClaimService claimService;
     private final long expiresIn;
 
     public MobileAuthService(UserDirectoryMapper userDirectoryMapper,
                              PasswordEncoder passwordEncoder,
                              JwtService jwtService,
                              RefreshTokenService refreshTokenService,
+                             ClaimService claimService,
                              @Value("${noos.mobile.auth.access-ttl-min:15}") long accessTtlMin) {
         this.userDirectoryMapper = userDirectoryMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
+        this.claimService = claimService;
         this.expiresIn = accessTtlMin * 60;
     }
 
@@ -49,6 +52,10 @@ public class MobileAuthService {
         row.setDisplayName(request.displayName());
         row.setPasswordHash(passwordEncoder.encode(request.password()));
         userDirectoryMapper.insertLocalUser(row);
+
+        if (request.claimDeviceId() != null && !request.claimDeviceId().isBlank()) {
+            claimService.claim(row.getUserId(), request.claimDeviceId());
+        }
 
         return issueAuth(row, deviceId);
     }
