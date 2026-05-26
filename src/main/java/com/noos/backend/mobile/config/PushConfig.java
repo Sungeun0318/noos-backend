@@ -1,5 +1,8 @@
 package com.noos.backend.mobile.config;
 
+import com.eatthepath.pushy.apns.ApnsClient;
+import com.eatthepath.pushy.apns.ApnsClientBuilder;
+import com.eatthepath.pushy.apns.auth.ApnsSigningKey;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
@@ -48,6 +51,25 @@ public class PushConfig {
         return FirebaseMessaging.getInstance(app);
     }
 
+    @Bean
+    @Conditional(ApnsCredentialsCondition.class)
+    public ApnsClient apnsClient(@Value("${noos.mobile.push.apns.environment:sandbox}") String environment,
+                                 @Value("${noos.mobile.push.apns.team-id:}") String teamId,
+                                 @Value("${noos.mobile.push.apns.key-id:}") String keyId,
+                                 @Value("${noos.mobile.push.apns.key-path:}") String keyPath) throws Exception {
+        String host = "production".equalsIgnoreCase(environment)
+                ? ApnsClientBuilder.PRODUCTION_APNS_HOST
+                : ApnsClientBuilder.DEVELOPMENT_APNS_HOST;
+
+        try (FileInputStream keyInput = new FileInputStream(keyPath)) {
+            ApnsSigningKey signingKey = ApnsSigningKey.loadFromInputStream(keyInput, teamId, keyId);
+            return new ApnsClientBuilder()
+                    .setApnsServer(host)
+                    .setSigningKey(signingKey)
+                    .build();
+        }
+    }
+
     static class FcmCredentialsFileCondition implements Condition {
 
         @Override
@@ -58,6 +80,36 @@ public class PushConfig {
                 log.warn("FCM credentials not found at {} - push disabled", path);
             }
             return enabled;
+        }
+    }
+
+    static class ApnsCredentialsCondition implements Condition {
+
+        @Override
+        public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+            boolean apnsEnabled = context.getEnvironment().getProperty(
+                    "noos.mobile.push.apns.enabled",
+                    Boolean.class,
+                    true
+            );
+            String topic = context.getEnvironment().getProperty("noos.mobile.push.apns.topic");
+            String teamId = context.getEnvironment().getProperty("noos.mobile.push.apns.team-id");
+            String keyId = context.getEnvironment().getProperty("noos.mobile.push.apns.key-id");
+            String keyPath = context.getEnvironment().getProperty("noos.mobile.push.apns.key-path");
+            boolean enabled = apnsEnabled
+                    && hasText(topic)
+                    && hasText(teamId)
+                    && hasText(keyId)
+                    && hasText(keyPath)
+                    && Files.isRegularFile(Path.of(keyPath));
+            if (!enabled) {
+                log.warn("APNs credentials not found - APNs disabled");
+            }
+            return enabled;
+        }
+
+        private boolean hasText(String value) {
+            return value != null && !value.isBlank();
         }
     }
 }

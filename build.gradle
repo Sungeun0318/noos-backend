@@ -47,6 +47,9 @@ dependencies {
     // Push (FCM)
     implementation 'com.google.firebase:firebase-admin:9.3.0'
 
+    // Push (APNs)
+    implementation 'com.eatthepath:pushy:0.15.4'
+
     // Lombok (getter, setter 자동 생성)
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
