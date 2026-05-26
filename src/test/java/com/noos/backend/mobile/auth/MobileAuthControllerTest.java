@@ -49,6 +49,9 @@ class MobileAuthControllerTest {
                 JOIN users u ON u.user_id = mat.user_id
                 WHERE u.login_id LIKE ?
                 """, LOGIN_PREFIX + "%");
+        jdbc.update("DELETE FROM push_devices WHERE device_id LIKE ?", "dev_claim_%");
+        jdbc.update("DELETE FROM state_measurements WHERE device_id LIKE ?", "dev_claim_%");
+        jdbc.update("DELETE FROM mobile_sessions WHERE device_id LIKE ?", "dev_claim_%");
         jdbc.update("DELETE FROM users WHERE login_id LIKE ?", LOGIN_PREFIX + "%");
     }
 
@@ -230,15 +233,129 @@ class MobileAuthControllerTest {
                 .andExpect(jsonPath("$.user").doesNotExist());
     }
 
+    @Test
+    void signupWithClaimDeviceIdAttachesGuestSessionToNewUser() throws Exception {
+        String claimDeviceId = "dev_claim_signup_" + System.nanoTime();
+        insertGuestSession("session_claim_signup", claimDeviceId);
+
+        AuthResult auth = signup(uniqueLogin(), claimDeviceId);
+
+        Long userId = jdbc.queryForObject(
+                "SELECT user_id FROM mobile_sessions WHERE id = ?",
+                Long.class,
+                "session_claim_signup"
+        );
+        assertThat(userId).isEqualTo(auth.userId());
+    }
+
+    @Test
+    void signupWithoutClaimDeviceIdDoesNotAttachGuestRows() throws Exception {
+        String claimDeviceId = "dev_claim_none_" + System.nanoTime();
+        insertGuestSession("session_claim_none", claimDeviceId);
+
+        signup(uniqueLogin());
+
+        Long userId = jdbc.queryForObject(
+                "SELECT user_id FROM mobile_sessions WHERE id = ?",
+                Long.class,
+                "session_claim_none"
+        );
+        assertThat(userId).isNull();
+    }
+
+    @Test
+    void claimSkipsRowsAlreadyOwnedByAnotherUser() throws Exception {
+        String claimDeviceId = "dev_claim_owned_" + System.nanoTime();
+        AuthResult owner = signup(uniqueLogin());
+        insertOwnedSession("session_claim_owned", claimDeviceId, owner.userId());
+
+        AuthResult claimant = signup(uniqueLogin(), claimDeviceId);
+
+        Long userId = jdbc.queryForObject(
+                "SELECT user_id FROM mobile_sessions WHERE id = ?",
+                Long.class,
+                "session_claim_owned"
+        );
+        assertThat(userId).isEqualTo(owner.userId());
+        assertThat(userId).isNotEqualTo(claimant.userId());
+    }
+
+    @Test
+    void claimAnonymousWithoutAuthorizationReturnsUnauthorized() throws Exception {
+        mockMvc.perform(post("/api/mobile/auth/claim-anonymous")
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("deviceId", "dev_claim_guest"))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void claimAnonymousAttachesGuestHistoryAndPushDevices() throws Exception {
+        String claimDeviceId = "dev_claim_endpoint_" + System.nanoTime();
+        insertGuestSession("session_claim_endpoint", claimDeviceId);
+        insertGuestMeasurement("meas_claim_endpoint", claimDeviceId);
+        insertGuestPushDevice("dreg_claim_endpoint", claimDeviceId);
+        AuthResult auth = signup(uniqueLogin());
+
+        mockMvc.perform(post("/api/mobile/auth/claim-anonymous")
+                        .header("x-device-id", DEVICE_ID)
+                        .header("Authorization", "Bearer " + auth.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("deviceId", claimDeviceId))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.claimedCount.sessions").value(1))
+                .andExpect(jsonPath("$.claimedCount.measurements").value(1));
+
+        assertThat(jdbc.queryForObject(
+                "SELECT user_id FROM mobile_sessions WHERE id = ?",
+                Long.class,
+                "session_claim_endpoint"
+        )).isEqualTo(auth.userId());
+        assertThat(jdbc.queryForObject(
+                "SELECT user_id FROM state_measurements WHERE id = ?",
+                Long.class,
+                "meas_claim_endpoint"
+        )).isEqualTo(auth.userId());
+        assertThat(jdbc.queryForObject(
+                "SELECT user_id FROM push_devices WHERE id = ?",
+                Long.class,
+                "dreg_claim_endpoint"
+        )).isEqualTo(auth.userId());
+    }
+
+    @Test
+    void claimAnonymousForDifferentDeviceReturnsZeroCounts() throws Exception {
+        AuthResult auth = signup(uniqueLogin());
+
+        mockMvc.perform(post("/api/mobile/auth/claim-anonymous")
+                        .header("x-device-id", DEVICE_ID)
+                        .header("Authorization", "Bearer " + auth.accessToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(Map.of("deviceId", "dev_claim_missing"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ok").value(true))
+                .andExpect(jsonPath("$.claimedCount.sessions").value(0))
+                .andExpect(jsonPath("$.claimedCount.measurements").value(0));
+    }
+
     private AuthResult signup(String loginId) throws Exception {
+        return signup(loginId, null);
+    }
+
+    private AuthResult signup(String loginId, String claimDeviceId) throws Exception {
+        Map<String, Object> request = new java.util.LinkedHashMap<>();
+        request.put("loginId", loginId);
+        request.put("password", "password-1");
+        request.put("displayName", "Mobile User");
+        if (claimDeviceId != null) {
+            request.put("claimDeviceId", claimDeviceId);
+        }
+
         MvcResult result = mockMvc.perform(post("/api/mobile/auth/signup")
                         .header("x-device-id", DEVICE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(json(Map.of(
-                                "loginId", loginId,
-                                "password", "password-1",
-                                "displayName", "Mobile User"
-                        ))))
+                        .content(json(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.user.loginId").value(loginId))
                 .andExpect(jsonPath("$.accessToken").isNotEmpty())
@@ -281,6 +398,53 @@ class MobileAuthControllerTest {
     private String sha256(String token) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         return HexFormat.of().formatHex(digest.digest(token.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private void insertGuestSession(String sessionId, String deviceId) {
+        jdbc.update("""
+                INSERT INTO mobile_sessions (
+                    id, device_id, planet, duration_sec, current_state, lighting_enabled, source, status, created_at
+                ) VALUES (
+                    ?, ?, 'Mars', 60, CAST(? AS JSON), 1, 'survey', 'ready', NOW()
+                )
+                """,
+                sessionId,
+                deviceId,
+                "{\"focus_readiness\":0.5}"
+        );
+    }
+
+    private void insertOwnedSession(String sessionId, String deviceId, Long userId) {
+        insertGuestSession(sessionId, deviceId);
+        jdbc.update("UPDATE mobile_sessions SET user_id = ? WHERE id = ?", userId, sessionId);
+    }
+
+    private void insertGuestMeasurement(String measurementId, String deviceId) {
+        jdbc.update("""
+                INSERT INTO state_measurements (
+                    id, device_id, source, survey_json, current_state, measured_at, created_at
+                ) VALUES (
+                    ?, ?, 'survey', CAST(? AS JSON), CAST(? AS JSON), NOW(), NOW()
+                )
+                """,
+                measurementId,
+                deviceId,
+                "{\"focus\":0.5}",
+                "{\"focus_readiness\":0.5}"
+        );
+    }
+
+    private void insertGuestPushDevice(String id, String deviceId) {
+        jdbc.update("""
+                INSERT INTO push_devices (
+                    id, device_id, platform, provider, token, active, created_at
+                ) VALUES (
+                    ?, ?, 'ios', 'apns', 'token_claim', 1, NOW()
+                )
+                """,
+                id,
+                deviceId
+        );
     }
 
     private record AuthResult(Long userId, String accessToken, String refreshToken, long expiresIn) {

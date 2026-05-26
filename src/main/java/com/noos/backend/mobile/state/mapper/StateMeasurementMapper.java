@@ -10,4 +10,6 @@ public interface StateMeasurementMapper {
     void insert(StateMeasurementRow row);
 
     StateMeasurementRow findById(@Param("id") String id);
+
+    int attachUserIdByDevice(@Param("userId") long userId, @Param("deviceId") String deviceId);
 }

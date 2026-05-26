@@ -136,4 +136,11 @@
         WHERE id = #{id}
     </update>
 
+    <update id="attachUserIdByDevice">
+        UPDATE mobile_sessions
+        SET user_id = #{userId}
+        WHERE user_id IS NULL
+          AND device_id = #{deviceId}
+    </update>
+
 </mapper>

@@ -28,5 +28,7 @@ public interface MobileSessionMapper {
                                 @Param("limit") int limit,
                                 @Param("status") List<String> status);
 
+    int attachUserIdByDevice(@Param("userId") long userId, @Param("deviceId") String deviceId);
+
     void softDelete(@Param("id") String id);
 }

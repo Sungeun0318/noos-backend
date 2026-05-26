@@ -15,4 +15,6 @@ public interface PushDeviceMapper {
     List<PushDeviceRow> findActive(@Param("deviceId") String deviceId, @Param("userId") Long userId);
 
     void deactivateById(@Param("id") String id);
+
+    int attachUserIdByDevice(@Param("userId") long userId, @Param("deviceId") String deviceId);
 }
