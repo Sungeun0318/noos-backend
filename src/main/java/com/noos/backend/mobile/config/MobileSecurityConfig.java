@@ -1,6 +1,7 @@
 package com.noos.backend.mobile.config;
 
 import com.noos.backend.mobile.auth.filter.JwtAuthenticationFilter;
+import com.noos.backend.mobile.common.RateLimitFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -17,6 +18,7 @@ public class MobileSecurityConfig {
     @Order(1)
     public SecurityFilterChain mobileFilterChain(HttpSecurity http,
                                                  DeviceContextFilter deviceContextFilter,
+                                                 RateLimitFilter rateLimitFilter,
                                                  JwtAuthenticationFilter jwtAuthenticationFilter)
             throws Exception {
         http
@@ -34,6 +36,7 @@ public class MobileSecurityConfig {
                         .requestMatchers("/api/mobile/**").permitAll()
                 )
                 .addFilterBefore(deviceContextFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(rateLimitFilter, DeviceContextFilter.class)
                 .addFilterAfter(jwtAuthenticationFilter, DeviceContextFilter.class);
 
         return http.build();

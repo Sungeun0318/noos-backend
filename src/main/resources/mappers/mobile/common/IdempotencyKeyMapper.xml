@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.common.mapper.IdempotencyKeyMapper">
+
+    <resultMap id="IdempotencyKeyRowMap" type="com.noos.backend.mobile.common.IdempotencyKeyRow">
+        <id property="k" column="k" />
+        <result property="scope" column="scope" />
+        <result property="deviceId" column="device_id" />
+        <result property="responseHash" column="response_hash" />
+        <result property="responseBody" column="response_body" />
+        <result property="createdAt" column="created_at" />
+        <result property="expiresAt" column="expires_at" />
+    </resultMap>
+
+    <select id="findByKey" resultMap="IdempotencyKeyRowMap">
+        SELECT
+            k,
+            scope,
+            device_id,
+            response_hash,
+            response_body,
+            created_at,
+            expires_at
+        FROM idempotency_keys
+        WHERE k = #{k}
+    </select>
+
+    <insert id="store" parameterType="com.noos.backend.mobile.common.IdempotencyKeyRow">
+        INSERT INTO idempotency_keys (
+            k,
+            scope,
+            device_id,
+            response_hash,
+            response_body,
+            created_at,
+            expires_at
+        ) VALUES (
+            #{k},
+            #{scope},
+            #{deviceId},
+            #{responseHash},
+            #{responseBody},
+            #{createdAt},
+            #{expiresAt}
+        )
+        ON DUPLICATE KEY UPDATE
+            response_hash = VALUES(response_hash),
+            response_body = VALUES(response_body),
+            expires_at = VALUES(expires_at)
+    </insert>
+
+    <delete id="deleteExpired">
+        DELETE FROM idempotency_keys
+        WHERE expires_at &lt;= NOW()
+    </delete>
+
+</mapper>
