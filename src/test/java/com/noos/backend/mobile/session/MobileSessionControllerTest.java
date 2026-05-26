@@ -1,5 +1,6 @@
 package com.noos.backend.mobile.session;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -10,17 +11,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import com.noos.backend.mobile.session.service.GenerationWorker;
 
-@SpringBootTest
+@SpringBootTest(properties = "noos.mobile.ratelimit.sessions-create.limit=100")
 @AutoConfigureMockMvc
 class MobileSessionControllerTest {
 
@@ -31,6 +34,9 @@ class MobileSessionControllerTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @MockBean
     private GenerationWorker generationWorker;
@@ -122,6 +128,78 @@ class MobileSessionControllerTest {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void enqueueWithSameIdempotencyKeyReturnsCachedResponse() throws Exception {
+        String deviceId = uniqueDeviceId();
+        String key = "idem-" + UUID.randomUUID();
+
+        MvcResult first = mockMvc.perform(post("/api/mobile/sessions")
+                        .header("x-device-id", deviceId)
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validSessionBody()))
+                .andExpect(status().isAccepted())
+                .andReturn();
+
+        MvcResult second = mockMvc.perform(post("/api/mobile/sessions")
+                        .header("x-device-id", deviceId)
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validSessionBody()))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String firstSessionId = sessionId(first);
+        String secondSessionId = sessionId(second);
+        Integer rows = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM mobile_sessions WHERE device_id = ?",
+                Integer.class,
+                deviceId
+        );
+
+        assertThat(secondSessionId).isEqualTo(firstSessionId);
+        assertThat(rows).isEqualTo(1);
+    }
+
+    @Test
+    void enqueueWithoutIdempotencyKeyCreatesSeparateSessions() throws Exception {
+        String deviceId = uniqueDeviceId();
+
+        String firstSessionId = sessionId(mockMvc.perform(post("/api/mobile/sessions")
+                        .header("x-device-id", deviceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validSessionBody()))
+                .andExpect(status().isAccepted())
+                .andReturn());
+        String secondSessionId = sessionId(mockMvc.perform(post("/api/mobile/sessions")
+                        .header("x-device-id", deviceId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validSessionBody()))
+                .andExpect(status().isAccepted())
+                .andReturn());
+
+        assertThat(secondSessionId).isNotEqualTo(firstSessionId);
+    }
+
+    @Test
+    void enqueueWithSameIdempotencyKeyFromDifferentDeviceReturnsConflict() throws Exception {
+        String key = "idem-" + UUID.randomUUID();
+
+        mockMvc.perform(post("/api/mobile/sessions")
+                        .header("x-device-id", uniqueDeviceId())
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validSessionBody()))
+                .andExpect(status().isAccepted());
+
+        mockMvc.perform(post("/api/mobile/sessions")
+                        .header("x-device-id", uniqueDeviceId())
+                        .header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validSessionBody()))
+                .andExpect(status().isConflict());
+    }
+
     private String createSession() throws Exception {
         MvcResult result = mockMvc.perform(post("/api/mobile/sessions")
                         .header("x-device-id", DEVICE_ID)
@@ -132,6 +210,15 @@ class MobileSessionControllerTest {
 
         JsonNode json = objectMapper.readTree(result.getResponse().getContentAsString());
         return json.get("sessionId").asText();
+    }
+
+    private String sessionId(MvcResult result) throws Exception {
+        JsonNode json = objectMapper.readTree(result.getResponse().getContentAsString());
+        return json.get("sessionId").asText();
+    }
+
+    private String uniqueDeviceId() {
+        return "dev_session_idem_" + UUID.randomUUID().toString().replace("-", "");
     }
 
     private String validSessionBody() throws Exception {
