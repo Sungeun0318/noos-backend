@@ -1,6 +1,7 @@
 package com.noos.backend.mobile.common;
 
 import com.noos.backend.mobile.common.mapper.IdempotencyKeyMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -16,9 +17,11 @@ public class IdempotencyService {
     private static final int MAX_KEY_LENGTH = 64;
 
     private final IdempotencyKeyMapper mapper;
+    private final MeterRegistry meterRegistry;
 
-    public IdempotencyService(IdempotencyKeyMapper mapper) {
+    public IdempotencyService(IdempotencyKeyMapper mapper, MeterRegistry meterRegistry) {
         this.mapper = mapper;
+        this.meterRegistry = meterRegistry;
     }
 
     public Optional<String> tryCachedResponse(String key, String scope, String deviceId) {
@@ -30,12 +33,14 @@ public class IdempotencyService {
             return Optional.empty();
         }
         if (!deviceId.equals(row.getDeviceId())) {
+            meterRegistry.counter("noos.mobile.idempotency.conflict.count", "scope", scope).increment();
             throw new ApiException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
         Instant expiresAt = row.getExpiresAt();
         if (expiresAt == null || !expiresAt.isAfter(Instant.now())) {
             return Optional.empty();
         }
+        meterRegistry.counter("noos.mobile.idempotency.hit.count", "scope", scope).increment();
         return Optional.ofNullable(row.getResponseBody());
     }
 

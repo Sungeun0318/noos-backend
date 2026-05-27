@@ -11,6 +11,7 @@ import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.MessagingErrorCode;
 import com.noos.backend.mobile.device.dto.PushDeviceRow;
 import com.noos.backend.mobile.device.mapper.PushDeviceMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
@@ -28,17 +29,20 @@ public class NotificationService {
     private final ObjectProvider<FirebaseMessaging> firebaseMessagingProvider;
     private final ObjectProvider<ApnsClient> apnsClientProvider;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
     private final String apnsTopic;
 
     public NotificationService(PushDeviceMapper pushDeviceMapper,
                                ObjectProvider<FirebaseMessaging> firebaseMessagingProvider,
                                ObjectProvider<ApnsClient> apnsClientProvider,
                                ObjectMapper objectMapper,
+                               MeterRegistry meterRegistry,
                                @Value("${noos.mobile.push.apns.topic:}") String apnsTopic) {
         this.pushDeviceMapper = pushDeviceMapper;
         this.firebaseMessagingProvider = firebaseMessagingProvider;
         this.apnsClientProvider = apnsClientProvider;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         this.apnsTopic = apnsTopic;
     }
 
@@ -81,13 +85,18 @@ public class NotificationService {
                 .build();
         try {
             fcm.send(message);
+            meterRegistry.counter("noos.mobile.push.sent.count", "provider", "fcm").increment();
         } catch (FirebaseMessagingException e) {
             log.warn("push failed: deviceRegistrationId={}", target.getId(), e);
             if (isInactiveToken(e)) {
+                meterRegistry.counter("noos.mobile.push.failed.count", "provider", "fcm", "reason", "unregistered").increment();
                 pushDeviceMapper.deactivateById(target.getId());
+            } else {
+                meterRegistry.counter("noos.mobile.push.failed.count", "provider", "fcm", "reason", "other").increment();
             }
         } catch (Exception e) {
             log.warn("push failed: deviceRegistrationId={}", target.getId(), e);
+            meterRegistry.counter("noos.mobile.push.failed.count", "provider", "fcm", "reason", "other").increment();
         }
     }
 
@@ -110,11 +119,17 @@ public class NotificationService {
                 String reason = response.getRejectionReason().orElse("");
                 log.warn("apns push rejected: deviceRegistrationId={} reason={}", target.getId(), reason);
                 if (isInactiveApnsToken(reason)) {
+                    meterRegistry.counter("noos.mobile.push.failed.count", "provider", "apns", "reason", "unregistered").increment();
                     pushDeviceMapper.deactivateById(target.getId());
+                } else {
+                    meterRegistry.counter("noos.mobile.push.failed.count", "provider", "apns", "reason", "other").increment();
                 }
+            } else {
+                meterRegistry.counter("noos.mobile.push.sent.count", "provider", "apns").increment();
             }
         } catch (Exception e) {
             log.warn("apns push failed: deviceRegistrationId={}", target.getId(), e);
+            meterRegistry.counter("noos.mobile.push.failed.count", "provider", "apns", "reason", "other").increment();
         }
     }
 

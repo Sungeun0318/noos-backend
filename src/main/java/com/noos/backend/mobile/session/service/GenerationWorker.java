@@ -7,6 +7,8 @@ import com.noos.backend.mobile.audio.service.AudioRegistryService;
 import com.noos.backend.mobile.device.service.NotificationService;
 import com.noos.backend.mobile.session.dto.MobileSessionRow;
 import com.noos.backend.mobile.session.mapper.MobileSessionMapper;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -30,21 +32,25 @@ public class GenerationWorker {
     private final AudioRegistryService audioRegistry;
     private final WizLightingService wizLightingService;
     private final NotificationService notificationService;
+    private final MeterRegistry meterRegistry;
 
     public GenerationWorker(MobileSessionMapper sessionMapper,
                             NoosAiService noosAiService,
                             AudioRegistryService audioRegistry,
                             WizLightingService wizLightingService,
-                            NotificationService notificationService) {
+                            NotificationService notificationService,
+                            MeterRegistry meterRegistry) {
         this.sessionMapper = sessionMapper;
         this.noosAiService = noosAiService;
         this.audioRegistry = audioRegistry;
         this.wizLightingService = wizLightingService;
         this.notificationService = notificationService;
+        this.meterRegistry = meterRegistry;
     }
 
     @Async("generationExecutor")
     public void run(String sessionId, GenerationContext ctx) {
+        long startedNanos = System.nanoTime();
         try {
             sessionMapper.updateStatus(sessionId, "generating", Instant.now());
 
@@ -83,14 +89,29 @@ public class GenerationWorker {
                 lightingJobId = null;
             }
 
+            recordGenerationDuration(ctx.planet(), "ready", startedNanos);
             sessionMapper.markReady(sessionId, audioId, lightingJobId, Instant.now());
             notifyReady(sessionId);
         } catch (Exception e) {
             log.error("generation failed for {}", sessionId, e);
             String code = isAceStepFailure(e) ? "ACE_STEP_DOWN" : "GENERATION_FAILED";
+            recordGenerationDuration(ctx.planet(), "failed", startedNanos);
+            meterRegistry.counter("noos.mobile.session.failed.count", "errorCode", code).increment();
             sessionMapper.markFailed(sessionId, code, e.getMessage());
             notifyFailed(sessionId, ctx.planet());
         }
+    }
+
+    private void recordGenerationDuration(String planet, String status, long startedNanos) {
+        Timer.builder("noos.mobile.session.generation.duration")
+                .tag("planet", metricValue(planet))
+                .tag("status", status)
+                .register(meterRegistry)
+                .record(System.nanoTime() - startedNanos, java.util.concurrent.TimeUnit.NANOSECONDS);
+    }
+
+    private String metricValue(String value) {
+        return value == null || value.isBlank() ? "unknown" : value;
     }
 
     private void notifyReady(String sessionId) {

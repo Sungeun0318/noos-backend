@@ -15,6 +15,7 @@ import com.noos.backend.mobile.session.dto.SessionListResponse;
 import com.noos.backend.mobile.session.dto.SessionResponse;
 import com.noos.backend.mobile.session.mapper.MobileSessionMapper;
 import com.noos.backend.mobile.session.mapper.SessionFeedbackMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -31,15 +32,18 @@ public class MobileSessionService {
     private final SessionFeedbackMapper feedbackMapper;
     private final ObjectMapper objectMapper;
     private final GenerationWorker worker;
+    private final MeterRegistry meterRegistry;
 
     public MobileSessionService(MobileSessionMapper sessionMapper,
                                 SessionFeedbackMapper feedbackMapper,
                                 ObjectMapper objectMapper,
-                                GenerationWorker worker) {
+                                GenerationWorker worker,
+                                MeterRegistry meterRegistry) {
         this.sessionMapper = sessionMapper;
         this.feedbackMapper = feedbackMapper;
         this.objectMapper = objectMapper;
         this.worker = worker;
+        this.meterRegistry = meterRegistry;
     }
 
     public EnqueueResponse enqueue(EnqueueRequest request, String deviceId) {
@@ -71,6 +75,11 @@ public class MobileSessionService {
                 request.lightingEnabled()
         );
         worker.run(sessionId, ctx);
+        meterRegistry.counter(
+                "noos.mobile.session.enqueue.count",
+                "planet", metricValue(request.planet()),
+                "source", metricValue(request.source())
+        ).increment();
 
         return new EnqueueResponse(sessionId, "queued", request.planet(), request.durationSec(), 600, 5000, now);
     }
@@ -156,5 +165,9 @@ public class MobileSessionService {
         } catch (JsonProcessingException e) {
             throw new ApiException(ErrorCode.INVALID_STORED_CURRENT_STATE, ErrorCode.INVALID_STORED_CURRENT_STATE.name(), e);
         }
+    }
+
+    private String metricValue(String value) {
+        return value == null || value.isBlank() ? "unknown" : value;
     }
 }
