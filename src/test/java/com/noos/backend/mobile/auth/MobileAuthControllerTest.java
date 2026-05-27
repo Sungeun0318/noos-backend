@@ -93,7 +93,8 @@ class MobileAuthControllerTest {
                                 "password", "password-2",
                                 "displayName", "Duplicate"
                         ))))
-                .andExpect(status().is4xxClientError());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("LOGIN_ID_TAKEN"));
     }
 
     @Test
@@ -131,7 +132,8 @@ class MobileAuthControllerTest {
                                 "loginId", loginId,
                                 "password", "wrong-password"
                         ))))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
     }
 
     @Test
@@ -178,7 +180,8 @@ class MobileAuthControllerTest {
                         .header("x-device-id", DEVICE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("refreshToken", old.refreshToken()))))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
     }
 
     @Test
@@ -205,7 +208,8 @@ class MobileAuthControllerTest {
                         .header("x-device-id", DEVICE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("refreshToken", expiredRefresh))))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
     }
 
     @Test
@@ -286,7 +290,8 @@ class MobileAuthControllerTest {
                         .header("x-device-id", DEVICE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json(Map.of("deviceId", "dev_claim_guest"))))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
     }
 
     @Test

@@ -3,6 +3,8 @@ package com.noos.backend.mobile.session.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.noos.backend.mobile.common.ApiException;
+import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.session.dto.EnqueueRequest;
 import com.noos.backend.mobile.session.dto.EnqueueResponse;
 import com.noos.backend.mobile.session.dto.FeedbackRequest;
@@ -17,9 +19,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class MobileSessionService {
@@ -112,7 +112,7 @@ public class MobileSessionService {
     private MobileSessionRow findVisibleSession(String sessionId, String deviceId) {
         MobileSessionRow row = sessionMapper.findById(sessionId);
         if (row == null || row.getDeletedAt() != null || !deviceId.equals(row.getDeviceId())) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+            throw new ApiException(ErrorCode.SESSION_NOT_FOUND);
         }
         return row;
     }
@@ -143,7 +143,7 @@ public class MobileSessionService {
         try {
             return objectMapper.writeValueAsString(currentState);
         } catch (JsonProcessingException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_CURRENT_STATE", e);
+            throw new ApiException(ErrorCode.INVALID_CURRENT_STATE, ErrorCode.INVALID_CURRENT_STATE.name(), e);
         }
     }
 
@@ -154,7 +154,7 @@ public class MobileSessionService {
         try {
             return objectMapper.readValue(json, CURRENT_STATE_TYPE);
         } catch (JsonProcessingException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "INVALID_STORED_CURRENT_STATE", e);
+            throw new ApiException(ErrorCode.INVALID_STORED_CURRENT_STATE, ErrorCode.INVALID_STORED_CURRENT_STATE.name(), e);
         }
     }
 }

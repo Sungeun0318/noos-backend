@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.noos.backend.mobile.audio.service.AudioRegistryService;
@@ -46,7 +47,8 @@ class MobileAudioControllerTest {
     void unknownAudioIdReturnsNotFound() throws Exception {
         mockMvc.perform(get("/api/mobile/audio/unknown_id")
                         .header("x-device-id", "dev_test_001"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("AUDIO_NOT_FOUND"));
     }
 
     @Test

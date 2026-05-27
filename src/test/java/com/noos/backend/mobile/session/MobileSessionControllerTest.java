@@ -63,7 +63,8 @@ class MobileSessionControllerTest {
                         .header("x-device-id", DEVICE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
     }
 
     @Test
@@ -82,7 +83,8 @@ class MobileSessionControllerTest {
     void getUnknownSessionReturnsNotFound() throws Exception {
         mockMvc.perform(get("/api/mobile/sessions/unknown_id")
                         .header("x-device-id", DEVICE_ID))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("SESSION_NOT_FOUND"));
     }
 
     @Test
@@ -125,7 +127,8 @@ class MobileSessionControllerTest {
 
         mockMvc.perform(get("/api/mobile/sessions/{id}", sessionId)
                         .header("x-device-id", DEVICE_ID))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("SESSION_NOT_FOUND"));
     }
 
     @Test
@@ -197,7 +200,8 @@ class MobileSessionControllerTest {
                         .header("Idempotency-Key", key)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validSessionBody()))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_CONFLICT"));
     }
 
     private String createSession() throws Exception {

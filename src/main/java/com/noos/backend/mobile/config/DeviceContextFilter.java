@@ -1,5 +1,9 @@
 package com.noos.backend.mobile.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.noos.backend.mobile.common.ApiError;
+import com.noos.backend.mobile.common.ApiErrorEnvelope;
+import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.RequestContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -16,6 +20,12 @@ public class DeviceContextFilter extends OncePerRequestFilter {
     private static final String DEVICE_ID_HEADER = "x-device-id";
     private static final String HEALTH_PATH = "/api/mobile/health";
 
+    private final ObjectMapper objectMapper;
+
+    public DeviceContextFilter(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
@@ -28,7 +38,11 @@ public class DeviceContextFilter extends OncePerRequestFilter {
         if (deviceId == null || deviceId.isBlank()) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            response.getWriter().write("{\"error\":{\"code\":\"MISSING_DEVICE_ID\"}}");
+            objectMapper.writeValue(response.getWriter(), new ApiErrorEnvelope(new ApiError(
+                    ErrorCode.MISSING_DEVICE_ID.name(),
+                    ErrorCode.MISSING_DEVICE_ID.name(),
+                    null
+            )));
             return;
         }
 

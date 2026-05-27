@@ -1,8 +1,6 @@
 package com.noos.backend.mobile.health;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -50,6 +48,6 @@ class MobileHealthControllerTest {
     void mobileEndpointWithoutDeviceIdReturnsMissingDeviceId() throws Exception {
         mockMvc.perform(get("/api/mobile/sessions"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().string(containsString("MISSING_DEVICE_ID")));
+                .andExpect(jsonPath("$.error.code").value("MISSING_DEVICE_ID"));
     }
 }

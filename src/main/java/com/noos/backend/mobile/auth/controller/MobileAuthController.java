@@ -9,16 +9,16 @@ import com.noos.backend.mobile.auth.dto.RefreshRequest;
 import com.noos.backend.mobile.auth.dto.SignupRequest;
 import com.noos.backend.mobile.auth.service.ClaimService;
 import com.noos.backend.mobile.auth.service.MobileAuthService;
+import com.noos.backend.mobile.common.ApiException;
+import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.RequestContext;
 import jakarta.validation.Valid;
 import java.util.Map;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/mobile/auth")
@@ -59,7 +59,7 @@ public class MobileAuthController {
     public ClaimAnonymousResponse claimAnonymous(@Valid @RequestBody ClaimAnonymousRequest request) {
         Long userId = RequestContext.userId();
         if (userId == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+            throw new ApiException(ErrorCode.UNAUTHORIZED);
         }
         ClaimService.ClaimResult result = claimService.claim(userId, request.deviceId());
         return new ClaimAnonymousResponse(true, new ClaimedCount(result.sessions(), result.measurements()));
