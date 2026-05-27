@@ -2,6 +2,8 @@ package com.noos.backend.mobile.auth.service;
 
 import com.noos.backend.mobile.auth.dto.MobileAuthTokenRow;
 import com.noos.backend.mobile.auth.mapper.MobileAuthMapper;
+import com.noos.backend.mobile.common.ApiException;
+import com.noos.backend.mobile.common.ErrorCode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -11,9 +13,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class RefreshTokenService {
@@ -47,7 +47,7 @@ public class RefreshTokenService {
     public MobileAuthTokenRow requireActiveRefresh(String refreshToken) {
         MobileAuthTokenRow row = mobileAuthMapper.findActiveByRefreshToken(sha256(refreshToken));
         if (row == null || row.getExpiresAt() == null || row.getExpiresAt().isBefore(Instant.now())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+            throw new ApiException(ErrorCode.INVALID_CREDENTIALS);
         }
         return row;
     }

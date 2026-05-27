@@ -9,14 +9,14 @@ import com.noos.backend.mobile.auth.dto.MobileUserRow;
 import com.noos.backend.mobile.auth.dto.RefreshRequest;
 import com.noos.backend.mobile.auth.dto.SignupRequest;
 import com.noos.backend.mobile.auth.mapper.UserDirectoryMapper;
+import com.noos.backend.mobile.common.ApiException;
+import com.noos.backend.mobile.common.ErrorCode;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class MobileAuthService {
@@ -44,7 +44,7 @@ public class MobileAuthService {
 
     public AuthResponse signup(String deviceId, SignupRequest request) {
         if (userDirectoryMapper.findLocalUserByLoginId(request.loginId()) != null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT);
+            throw new ApiException(ErrorCode.LOGIN_ID_TAKEN);
         }
 
         MobileUserRow row = new MobileUserRow();
@@ -64,7 +64,7 @@ public class MobileAuthService {
         MobileUserRow row = userDirectoryMapper.findLocalUserByLoginId(request.loginId());
         if (row == null || row.getPasswordHash() == null
                 || !passwordEncoder.matches(request.password(), row.getPasswordHash())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+            throw new ApiException(ErrorCode.INVALID_CREDENTIALS);
         }
         return issueAuth(row, deviceId);
     }
@@ -76,7 +76,7 @@ public class MobileAuthService {
 
         MobileUserRow user = userDirectoryMapper.findById(oldRow.getUserId());
         if (user == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+            throw new ApiException(ErrorCode.INVALID_CREDENTIALS);
         }
         return issueAuth(user, oldRow.getDeviceId());
     }

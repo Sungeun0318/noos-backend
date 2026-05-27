@@ -52,8 +52,8 @@ class RateLimitFilterTest {
                         .content(validSessionBody()))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
-                .andExpect(jsonPath("$.error").value("RATE_LIMITED"))
-                .andExpect(jsonPath("$.retryAfterSec").isNumber());
+                .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+                .andExpect(jsonPath("$.error.message").exists());
     }
 
     @Test
@@ -84,7 +84,7 @@ class RateLimitFilterTest {
 
         mockMvc.perform(get("/api/mobile/sessions").header("x-device-id", deviceId))
                 .andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.error").value("RATE_LIMITED"));
+                .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"));
     }
 
     private String validSessionBody() throws Exception {

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noos.backend.ai.dto.EegRecognitionRequest;
 import com.noos.backend.ai.dto.PlanetRecommendationRequest;
 import com.noos.backend.ai.service.NoosAiService;
+import com.noos.backend.mobile.common.ApiException;
+import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.state.dto.EegInput;
 import com.noos.backend.mobile.state.dto.MeasureRequest;
 import com.noos.backend.mobile.state.dto.MeasureResponse;
@@ -19,9 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class StateMeasurementService {
@@ -249,7 +249,11 @@ public class StateMeasurementService {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_STATE_MEASUREMENT_PAYLOAD", e);
+            throw new ApiException(
+                    ErrorCode.INVALID_STATE_MEASUREMENT_PAYLOAD,
+                    ErrorCode.INVALID_STATE_MEASUREMENT_PAYLOAD.name(),
+                    e
+            );
         }
     }
 

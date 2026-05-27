@@ -9,7 +9,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -74,10 +73,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.setStatus(429);
         response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(result.retryAfterSec()));
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getWriter(), Map.of(
-                "error", "RATE_LIMITED",
-                "retryAfterSec", result.retryAfterSec()
-        ));
+        objectMapper.writeValue(response.getWriter(), new ApiErrorEnvelope(new ApiError(
+                ErrorCode.RATE_LIMITED.name(),
+                "retry after " + result.retryAfterSec() + "s",
+                null
+        )));
     }
 
     private Policy policyFor(HttpServletRequest request) {

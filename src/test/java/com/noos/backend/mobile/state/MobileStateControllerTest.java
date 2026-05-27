@@ -101,7 +101,8 @@ class MobileStateControllerTest {
                         .header("x-device-id", DEVICE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
     }
 
     @Test

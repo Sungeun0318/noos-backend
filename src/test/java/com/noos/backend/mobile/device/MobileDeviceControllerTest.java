@@ -90,7 +90,8 @@ class MobileDeviceControllerTest {
         mockMvc.perform(post("/api/mobile/devices/push-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body("ios", "apns", "token_apns_001")))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("MISSING_DEVICE_ID"));
     }
 
     @Test
@@ -127,7 +128,8 @@ class MobileDeviceControllerTest {
                         .header("x-device-id", DEVICE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
     }
 
     @Test

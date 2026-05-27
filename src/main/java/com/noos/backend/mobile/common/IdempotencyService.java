@@ -8,9 +8,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.Optional;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class IdempotencyService {
@@ -32,7 +30,7 @@ public class IdempotencyService {
             return Optional.empty();
         }
         if (!deviceId.equals(row.getDeviceId())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_CONFLICT");
+            throw new ApiException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
         Instant expiresAt = row.getExpiresAt();
         if (expiresAt == null || !expiresAt.isAfter(Instant.now())) {

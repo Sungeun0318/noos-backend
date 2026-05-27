@@ -4,11 +4,11 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.noos.backend.mobile.audio.dto.GeneratedAudioRow;
 import com.noos.backend.mobile.audio.dto.ResolvedAudio;
 import com.noos.backend.mobile.audio.mapper.GeneratedAudioMapper;
+import com.noos.backend.mobile.common.ApiException;
+import com.noos.backend.mobile.common.ErrorCode;
 import java.time.LocalDateTime;
 import java.util.UUID;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AudioRegistryService {
@@ -34,12 +34,12 @@ public class AudioRegistryService {
     private ResolvedAudio load(String audioId) {
         GeneratedAudioRow row = mapper.findById(audioId);
         if (row == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "AUDIO_NOT_FOUND");
+            throw new ApiException(ErrorCode.AUDIO_NOT_FOUND);
         }
 
         LocalDateTime expiresAt = row.getExpiresAt();
         if (expiresAt != null && expiresAt.isBefore(LocalDateTime.now())) {
-            throw new ResponseStatusException(HttpStatus.GONE, "AUDIO_EXPIRED");
+            throw new ApiException(ErrorCode.AUDIO_EXPIRED);
         }
 
         return new ResolvedAudio(row.getStorageRef(), row.getMime(), row.getDurationSec());
