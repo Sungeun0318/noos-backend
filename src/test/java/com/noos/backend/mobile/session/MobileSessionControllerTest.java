@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,9 @@ class MobileSessionControllerTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private MeterRegistry meterRegistry;
+
     @MockBean
     private GenerationWorker generationWorker;
 
@@ -50,6 +54,9 @@ class MobileSessionControllerTest {
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.sessionId", startsWith("session_")))
                 .andExpect(jsonPath("$.status").value("queued"));
+
+        assertThat(meterRegistry.get("noos.mobile.session.enqueue.count").counter().count())
+                .isGreaterThanOrEqualTo(1.0d);
     }
 
     @Test

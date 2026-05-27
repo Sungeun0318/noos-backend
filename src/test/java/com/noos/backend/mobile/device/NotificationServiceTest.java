@@ -18,6 +18,7 @@ import com.google.firebase.messaging.MessagingErrorCode;
 import com.noos.backend.mobile.device.dto.PushDeviceRow;
 import com.noos.backend.mobile.device.mapper.PushDeviceMapper;
 import com.noos.backend.mobile.device.service.NotificationService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Stream;
@@ -192,6 +193,7 @@ class NotificationServiceTest {
                 provider(fcm),
                 provider(apns),
                 new ObjectMapper(),
+                new SimpleMeterRegistry(),
                 "ai.noos.mobile"
         );
     }

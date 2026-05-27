@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -25,15 +26,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final Cache<String, TokenBucket> buckets;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
     private final Policy sessionsCreatePolicy;
     private final Policy defaultGetPolicy;
 
     public RateLimitFilter(ObjectMapper objectMapper,
+                           MeterRegistry meterRegistry,
                            @Value("${noos.mobile.ratelimit.sessions-create.limit:6}") int sessionsCreateLimit,
                            @Value("${noos.mobile.ratelimit.sessions-create.per-minutes:10}") int sessionsCreateMinutes,
                            @Value("${noos.mobile.ratelimit.default-get.limit:600}") int defaultGetLimit,
                            @Value("${noos.mobile.ratelimit.default-get.per-minutes:1}") int defaultGetMinutes) {
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         this.sessionsCreatePolicy = new Policy(
                 "sessions-create",
                 Math.max(1, sessionsCreateLimit),
@@ -71,6 +75,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         response.setStatus(429);
+        meterRegistry.counter("noos.mobile.ratelimit.triggered.count", "policy", policy.name()).increment();
         response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(result.retryAfterSec()));
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getWriter(), new ApiErrorEnvelope(new ApiError(

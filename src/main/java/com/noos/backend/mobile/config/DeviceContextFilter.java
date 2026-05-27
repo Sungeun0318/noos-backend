@@ -10,6 +10,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import org.slf4j.MDC;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -18,6 +19,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class DeviceContextFilter extends OncePerRequestFilter {
 
     private static final String DEVICE_ID_HEADER = "x-device-id";
+    private static final String MOBILE_PREFIX = "/api/mobile/";
     private static final String HEALTH_PATH = "/api/mobile/health";
 
     private final ObjectMapper objectMapper;
@@ -29,6 +31,11 @@ public class DeviceContextFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        if (!isMobilePath(request.getRequestURI())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (HEALTH_PATH.equals(request.getRequestURI())) {
             filterChain.doFilter(request, response);
             return;
@@ -47,10 +54,15 @@ public class DeviceContextFilter extends OncePerRequestFilter {
         }
 
         RequestContext.setDeviceId(deviceId);
+        MDC.put("deviceId", deviceId);
         try {
             filterChain.doFilter(request, response);
         } finally {
             RequestContext.clear();
         }
+    }
+
+    private boolean isMobilePath(String uri) {
+        return uri != null && uri.startsWith(MOBILE_PREFIX);
     }
 }
