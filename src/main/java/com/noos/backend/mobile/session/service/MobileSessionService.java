@@ -134,7 +134,7 @@ public class MobileSessionService {
                 row.getDurationSec(),
                 row.getStateLabel(),
                 readJson(row.getCurrentState()),
-                null,
+                audioInfo(row),
                 null,
                 null,
                 null,
@@ -143,6 +143,13 @@ public class MobileSessionService {
                 row.getStartedAt(),
                 row.getCompletedAt()
         );
+    }
+
+    private SessionResponse.AudioInfo audioInfo(MobileSessionRow row) {
+        if (row.getAudioId() == null || row.getAudioId().isBlank()) {
+            return null;
+        }
+        return new SessionResponse.AudioInfo(row.getAudioId(), row.getDurationSec());
     }
 
     private String writeJson(Map<String, Double> currentState) {

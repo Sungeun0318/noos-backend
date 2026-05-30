@@ -102,6 +102,40 @@ class GenerationWorkerTest {
     }
 
     @Test
+    void workerReadsTopLevelAudioUrlLikeWebGenerationPath() throws Exception {
+        Path audioFile = createAudioFile();
+        String sessionId = "session_worker_" + System.nanoTime();
+        insertQueuedSession(sessionId);
+
+        when(noosAiService.generateIntervention(any(InterventionGenerationRequest.class)))
+                .thenReturn(Map.of(
+                        "audioUrl", "/api/ai/audio?path=" + URLEncoder.encode(audioFile.toString(), StandardCharsets.UTF_8),
+                        "interventionResult", Map.of(),
+                        "audioDurationSec", 30,
+                        "wizLighting", Map.of()
+                ));
+
+        worker.run(sessionId, new GenerationContext(
+                "Mars",
+                30,
+                Map.of("focus_readiness", 0.5),
+                "calm focus",
+                "집중",
+                "hybrid",
+                false
+        ));
+
+        MobileSessionRow row = waitForReady(sessionId);
+        assertThat(row.getStatus()).isEqualTo("ready");
+        assertThat(row.getAudioId()).startsWith("audio_");
+
+        GeneratedAudioRow audioRow = generatedAudioMapper.findById(row.getAudioId());
+        assertThat(audioRow).isNotNull();
+        assertThat(audioRow.getStorageRef()).isEqualTo(audioFile.toString());
+        assertThat(audioRow.getDurationSec()).isEqualTo(30);
+    }
+
+    @Test
     void lightingDisabledStopsActiveJobAfterGeneration() throws Exception {
         Path audioFile = createAudioFile();
         String sessionId = "session_worker_" + System.nanoTime();

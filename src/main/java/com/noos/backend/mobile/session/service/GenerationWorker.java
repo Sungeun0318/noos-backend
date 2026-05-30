@@ -142,6 +142,11 @@ public class GenerationWorker {
     }
 
     String extractAudioPath(Map<String, Object> result) {
+        String topLevelAudioUrl = extractPathFromAudioReference(stringValue(result.get("audioUrl")));
+        if (topLevelAudioUrl != null) {
+            return topLevelAudioUrl;
+        }
+
         Map<String, Object> interventionResult = mapValue(result.get("interventionResult"));
         String path = extractPathFromAceStepEntries(interventionResult);
         if (path != null) {
@@ -149,7 +154,7 @@ public class GenerationWorker {
         }
 
         for (String key : List.of("audio_file", "file_path", "audio_path", "local_file_path")) {
-            String direct = stringValue(interventionResult.get(key));
+            String direct = extractPathFromAudioReference(stringValue(interventionResult.get(key)));
             if (direct != null) {
                 return direct;
             }
@@ -177,12 +182,21 @@ public class GenerationWorker {
             return null;
         }
 
-        String file = stringValue(entries.get(0).get("file"));
-        if (file == null || !file.contains("path=")) {
+        return extractPathFromAudioReference(stringValue(entries.get(0).get("file")));
+    }
+
+    private String extractPathFromAudioReference(String reference) {
+        if (reference == null) {
             return null;
         }
+        if (!reference.contains("path=")) {
+            if (reference.startsWith("http://") || reference.startsWith("https://")) {
+                return null;
+            }
+            return reference;
+        }
 
-        String rawPath = file.substring(file.indexOf("path=") + 5);
+        String rawPath = reference.substring(reference.indexOf("path=") + 5);
         int ampersandIndex = rawPath.indexOf('&');
         if (ampersandIndex >= 0) {
             rawPath = rawPath.substring(0, ampersandIndex);
