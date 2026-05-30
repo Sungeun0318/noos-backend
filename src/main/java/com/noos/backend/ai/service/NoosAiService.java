@@ -88,6 +88,9 @@ public class NoosAiService {
     private final Object aceStepServerLock = new Object();
     private volatile Process aceStepServerProcess;
 
+    @Value("${noos.ai.root:}")
+    private String configuredAiRoot;
+
     public NoosAiService(
             ObjectMapper objectMapper,
             @Value("${noos.ai.python-bin:python}") String pythonBin,
@@ -605,6 +608,9 @@ public class NoosAiService {
     }
 
     private Path resolveRepoRoot() {
+        if (hasText(configuredAiRoot)) {
+            return Paths.get(configuredAiRoot).toAbsolutePath().normalize();
+        }
         Path cwd = Paths.get("").toAbsolutePath().normalize();
         if (Files.isDirectory(cwd.resolve("ai")) && Files.isDirectory(cwd.resolve("frontend"))) {
             return cwd;
