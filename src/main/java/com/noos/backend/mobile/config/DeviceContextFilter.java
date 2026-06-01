@@ -21,6 +21,7 @@ public class DeviceContextFilter extends OncePerRequestFilter {
     private static final String DEVICE_ID_HEADER = "x-device-id";
     private static final String MOBILE_PREFIX = "/api/mobile/";
     private static final String HEALTH_PATH = "/api/mobile/health";
+    private static final String AUDIO_PREFIX = "/api/mobile/audio/";
 
     private final ObjectMapper objectMapper;
 
@@ -36,7 +37,7 @@ public class DeviceContextFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (HEALTH_PATH.equals(request.getRequestURI())) {
+        if (HEALTH_PATH.equals(request.getRequestURI()) || isAudioPath(request.getRequestURI())) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -64,5 +65,9 @@ public class DeviceContextFilter extends OncePerRequestFilter {
 
     private boolean isMobilePath(String uri) {
         return uri != null && uri.startsWith(MOBILE_PREFIX);
+    }
+
+    private boolean isAudioPath(String uri) {
+        return uri != null && uri.startsWith(AUDIO_PREFIX);
     }
 }

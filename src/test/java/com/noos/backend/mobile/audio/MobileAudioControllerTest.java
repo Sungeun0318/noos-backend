@@ -32,12 +32,11 @@ class MobileAudioControllerTest {
     private Path tempDir;
 
     @Test
-    void registeredAudioStreamsFileWithoutExposingStorageRef() throws Exception {
+    void registeredAudioStreamsFileWithoutDeviceIdForNativePlayer() throws Exception {
         Path audioFile = createAudioFile();
         String audioId = registry.register(audioFile.toString(), "session_test", "audio/mpeg", 60);
 
-        mockMvc.perform(get("/api/mobile/audio/{audioId}", audioId)
-                        .header("x-device-id", "dev_test_001"))
+        mockMvc.perform(get("/api/mobile/audio/{audioId}", audioId))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", containsString("audio/mpeg")))
                 .andExpect(content().bytes(Files.readAllBytes(audioFile)));
