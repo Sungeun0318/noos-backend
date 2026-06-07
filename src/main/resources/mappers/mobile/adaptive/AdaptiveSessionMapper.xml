@@ -74,12 +74,10 @@
 
     <update id="updateStatus">
         UPDATE adaptive_session
-        <set>
-            status = #{status}
-            <if test="pausedReason != null">, paused_reason = #{pausedReason}</if>
-            <if test="pausedAt != null">, paused_at = #{pausedAt}</if>
-            <if test="endedAt != null">, ended_at = #{endedAt}</if>
-        </set>
+        SET status = #{status},
+            paused_reason = #{pausedReason},
+            paused_at = #{pausedAt},
+            ended_at = #{endedAt}
         WHERE id = #{id}
     </update>
 
