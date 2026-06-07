@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.adaptive.mapper.EegWindowMapper">
+
+    <resultMap id="EegWindowRowMap" type="com.noos.backend.mobile.adaptive.dto.EegWindowRow">
+        <id property="id" column="id" />
+        <result property="adaptiveSessionId" column="adaptive_session_id" />
+        <result property="windowIndex" column="window_index" />
+        <result property="windowStartAt" column="window_start_at" />
+        <result property="windowEndAt" column="window_end_at" />
+        <result property="windowDurationSec" column="window_duration_sec" />
+        <result property="sampleCount" column="sample_count" />
+        <result property="sampleRateHz" column="sample_rate_hz" />
+        <result property="delta" column="delta" />
+        <result property="theta" column="theta" />
+        <result property="alpha" column="alpha" />
+        <result property="beta" column="beta" />
+        <result property="gamma" column="gamma" />
+        <result property="dominantBand" column="dominant_band" />
+        <result property="qualityScore" column="quality_score" />
+        <result property="signalOk" column="signal_ok" />
+        <result property="focusReadiness" column="focus_readiness" />
+        <result property="stressLoad" column="stress_load" />
+        <result property="fatigueRisk" column="fatigue_risk" />
+        <result property="relaxationLevel" column="relaxation_level" />
+        <result property="corticalArousal" column="cortical_arousal" />
+        <result property="mentalWorkload" column="mental_workload" />
+        <result property="stateLabel" column="state_label" />
+        <result property="adaptiveAction" column="adaptive_action" />
+        <result property="createdAt" column="created_at" />
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        adaptive_session_id,
+        window_index,
+        window_start_at,
+        window_end_at,
+        window_duration_sec,
+        sample_count,
+        sample_rate_hz,
+        delta,
+        theta,
+        alpha,
+        beta,
+        gamma,
+        dominant_band,
+        quality_score,
+        signal_ok,
+        focus_readiness,
+        stress_load,
+        fatigue_risk,
+        relaxation_level,
+        cortical_arousal,
+        mental_workload,
+        state_label,
+        adaptive_action,
+        created_at
+    </sql>
+
+    <insert id="insert" parameterType="com.noos.backend.mobile.adaptive.dto.EegWindowRow" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO eeg_window (
+            adaptive_session_id,
+            window_index,
+            window_start_at,
+            window_end_at,
+            window_duration_sec,
+            sample_count,
+            sample_rate_hz,
+            delta,
+            theta,
+            alpha,
+            beta,
+            gamma,
+            dominant_band,
+            quality_score,
+            signal_ok,
+            focus_readiness,
+            stress_load,
+            fatigue_risk,
+            relaxation_level,
+            cortical_arousal,
+            mental_workload,
+            state_label,
+            adaptive_action,
+            created_at
+        ) VALUES (
+            #{adaptiveSessionId},
+            #{windowIndex},
+            #{windowStartAt},
+            #{windowEndAt},
+            #{windowDurationSec},
+            #{sampleCount},
+            #{sampleRateHz},
+            #{delta},
+            #{theta},
+            #{alpha},
+            #{beta},
+            #{gamma},
+            #{dominantBand},
+            #{qualityScore},
+            #{signalOk},
+            #{focusReadiness},
+            #{stressLoad},
+            #{fatigueRisk},
+            #{relaxationLevel},
+            #{corticalArousal},
+            #{mentalWorkload},
+            #{stateLabel},
+            #{adaptiveAction},
+            #{createdAt}
+        )
+    </insert>
+
+    <select id="findById" resultMap="EegWindowRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM eeg_window
+        WHERE id = #{id}
+    </select>
+
+    <select id="listWindows" resultMap="EegWindowRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM eeg_window
+        WHERE adaptive_session_id = #{adaptiveSessionId}
+        ORDER BY window_index ASC
+    </select>
+
+    <select id="findLatestWindow" resultMap="EegWindowRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM eeg_window
+        WHERE adaptive_session_id = #{adaptiveSessionId}
+        ORDER BY window_index DESC
+        LIMIT 1
+    </select>
+
+</mapper>

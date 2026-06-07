@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.adaptive.mapper.AdaptiveSessionMapper">
+
+    <resultMap id="AdaptiveSessionRowMap" type="com.noos.backend.mobile.adaptive.dto.AdaptiveSessionRow">
+        <id property="id" column="id" />
+        <result property="userId" column="user_id" />
+        <result property="deviceId" column="device_id" />
+        <result property="status" column="status" />
+        <result property="initialPlanet" column="initial_planet" />
+        <result property="currentPlanet" column="current_planet" />
+        <result property="pausedReason" column="paused_reason" />
+        <result property="seedSource" column="seed_source" />
+        <result property="startedAt" column="started_at" />
+        <result property="pausedAt" column="paused_at" />
+        <result property="endedAt" column="ended_at" />
+        <result property="createdAt" column="created_at" />
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        user_id,
+        device_id,
+        status,
+        initial_planet,
+        current_planet,
+        paused_reason,
+        seed_source,
+        started_at,
+        paused_at,
+        ended_at,
+        created_at
+    </sql>
+
+    <insert id="insert" parameterType="com.noos.backend.mobile.adaptive.dto.AdaptiveSessionRow">
+        INSERT INTO adaptive_session (
+            id,
+            user_id,
+            device_id,
+            status,
+            initial_planet,
+            current_planet,
+            paused_reason,
+            seed_source,
+            started_at,
+            paused_at,
+            ended_at,
+            created_at
+        ) VALUES (
+            #{id},
+            #{userId},
+            #{deviceId},
+            #{status},
+            #{initialPlanet},
+            #{currentPlanet},
+            #{pausedReason},
+            #{seedSource},
+            #{startedAt},
+            #{pausedAt},
+            #{endedAt},
+            #{createdAt}
+        )
+    </insert>
+
+    <select id="findById" resultMap="AdaptiveSessionRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM adaptive_session
+        WHERE id = #{id}
+    </select>
+
+    <update id="updateStatus">
+        UPDATE adaptive_session
+        <set>
+            status = #{status}
+            <if test="pausedReason != null">, paused_reason = #{pausedReason}</if>
+            <if test="pausedAt != null">, paused_at = #{pausedAt}</if>
+            <if test="endedAt != null">, ended_at = #{endedAt}</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+</mapper>
