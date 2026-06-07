@@ -1,5 +1,7 @@
 package com.noos.backend.mobile.adaptive.controller;
 
+import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRequest;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackResponse;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionResponse;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartRequest;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartResponse;
@@ -62,5 +64,12 @@ public class AdaptiveSessionController {
     public AdaptiveSessionStatusResponse end(@RequestHeader("x-device-id") String deviceId,
                                              @PathVariable String sessionId) {
         return adaptiveSessionService.end(sessionId, deviceId);
+    }
+
+    @PostMapping("/{sessionId}/feedback")
+    public AdaptiveFeedbackResponse submitFeedback(@RequestHeader("x-device-id") String deviceId,
+                                                   @PathVariable String sessionId,
+                                                   @RequestBody(required = false) AdaptiveFeedbackRequest request) {
+        return adaptiveSessionService.submitFeedback(sessionId, deviceId, request);
     }
 }
