@@ -2,19 +2,24 @@ package com.noos.backend.mobile.adaptive;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionRow;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartRequest;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitRequest;
 import com.noos.backend.mobile.adaptive.dto.EegWindowRow;
 import com.noos.backend.mobile.adaptive.dto.PauseAdaptiveSessionRequest;
 import com.noos.backend.mobile.adaptive.dto.SessionSegmentRow;
 import com.noos.backend.mobile.adaptive.mapper.AdaptiveSessionMapper;
 import com.noos.backend.mobile.adaptive.mapper.EegWindowMapper;
 import com.noos.backend.mobile.adaptive.mapper.SessionSegmentMapper;
+import com.noos.backend.mobile.adaptive.service.AdaptiveActionResolver;
+import com.noos.backend.mobile.adaptive.service.AdaptiveEegStateMapper;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSessionService;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
@@ -47,7 +52,14 @@ class AdaptiveSessionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AdaptiveSessionService(adaptiveSessionMapper, eegWindowMapper, sessionSegmentMapper);
+        service = new AdaptiveSessionService(
+                adaptiveSessionMapper,
+                eegWindowMapper,
+                sessionSegmentMapper,
+                new AdaptiveEegStateMapper(),
+                new AdaptiveActionResolver(),
+                300
+        );
     }
 
     @AfterEach
@@ -208,6 +220,117 @@ class AdaptiveSessionServiceTest {
         assertThat(response.sessionId()).isEqualTo("session_adaptive");
     }
 
+    @Test
+    void submitWindowPersistsSixAxisAndNoneActionForStableState() {
+        EegWindowRow previous = window(1L, 0);
+        previous.setFocusReadiness(0.445);
+        previous.setStressLoad(0.305);
+        previous.setFatigueRisk(0.29);
+        previous.setRelaxationLevel(0.57);
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        when(eegWindowMapper.listWindows("session_adaptive")).thenReturn(List.of(previous));
+        when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(previous);
+        assignWindowId(200L);
+
+        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(1, bands(0.1, 0.2, 0.3, 0.2, 0.1)));
+
+        assertThat(response.windowId()).isEqualTo(200L);
+        assertThat(response.sixAxis().focusReadiness()).isCloseTo(0.445, within(0.0001));
+        assertThat(response.sixAxis().stressLoad()).isCloseTo(0.305, within(0.0001));
+        assertThat(response.sixAxis().fatigueRisk()).isCloseTo(0.29, within(0.0001));
+        assertThat(response.sixAxis().relaxationLevel()).isCloseTo(0.57, within(0.0001));
+        assertThat(response.sixAxis().corticalArousal()).isCloseTo(0.4375, within(0.0001));
+        assertThat(response.sixAxis().mentalWorkload()).isCloseTo(0.2975, within(0.0001));
+        assertThat(response.adaptiveAction().type()).isEqualTo("none");
+        assertThat(response.nextSegment()).isNull();
+
+        ArgumentCaptor<EegWindowRow> windowCaptor = ArgumentCaptor.forClass(EegWindowRow.class);
+        verify(eegWindowMapper).insert(windowCaptor.capture());
+        assertThat(windowCaptor.getValue().getAdaptiveAction()).isEqualTo("none");
+        assertThat(windowCaptor.getValue().getStateLabel()).isEqualTo("neutral");
+        verify(sessionSegmentMapper, never()).insert(any(SessionSegmentRow.class));
+    }
+
+    @Test
+    void submitWindowCreatesPendingSegmentForCrossfade() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        when(eegWindowMapper.listWindows("session_adaptive")).thenReturn(List.of(window(1L, 0)));
+        when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(window(1L, 0));
+        when(sessionSegmentMapper.listSegments("session_adaptive")).thenReturn(List.of(
+                segment(10L, 0, "playing"),
+                segment(11L, 1, "ready")
+        ));
+        assignWindowId(201L);
+        assignSegmentId(101L);
+
+        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(1, bands(0.1, 0.9, 0.0, 1.0, 1.0)));
+
+        assertThat(response.adaptiveAction().type()).isEqualTo("crossfade");
+        assertThat(response.adaptiveAction().reason()).isEqualTo("calmer-crossfade");
+        assertThat(response.nextSegment().id()).isEqualTo(101L);
+        assertThat(response.nextSegment().index()).isEqualTo(2);
+        assertThat(response.nextSegment().status()).isEqualTo("pending");
+
+        ArgumentCaptor<SessionSegmentRow> segmentCaptor = ArgumentCaptor.forClass(SessionSegmentRow.class);
+        verify(sessionSegmentMapper).insert(segmentCaptor.capture());
+        assertThat(segmentCaptor.getValue().getDrivenByWindowId()).isEqualTo(201L);
+        assertThat(segmentCaptor.getValue().getPlanet()).isEqualTo("Mars");
+        assertThat(segmentCaptor.getValue().getStatus()).isEqualTo("pending");
+        assertThat(segmentCaptor.getValue().getDurationSec()).isEqualTo(120);
+        assertThat(segmentCaptor.getValue().getParamsJson()).contains("\"adaptiveAction\":\"crossfade\"");
+    }
+
+    @Test
+    void submitWindowGatesLowQualityToNone() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        when(eegWindowMapper.listWindows("session_adaptive")).thenReturn(List.of(window(1L, 0)));
+        when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(window(1L, 0));
+        assignWindowId(202L);
+
+        var request = windowRequest(1, bands(0.1, 0.9, 0.0, 1.0, 1.0), false, 0.9);
+        var response = service.submitWindow("session_adaptive", DEVICE_ID, request);
+
+        assertThat(response.adaptiveAction().type()).isEqualTo("none");
+        assertThat(response.adaptiveAction().reason()).isEqualTo("low-signal-quality");
+        assertThat(response.sixAxis().focusReadiness()).isEqualTo(0.6);
+        assertThat(response.sixAxis().relaxationLevel()).isEqualTo(0.7);
+        verify(sessionSegmentMapper, never()).insert(any(SessionSegmentRow.class));
+    }
+
+    @Test
+    void submitWindowThrottlesRecentCrossfadeToParameterAdjust() {
+        EegWindowRow previous = window(1L, 0);
+        EegWindowRow recentCrossfade = window(2L, 1);
+        recentCrossfade.setAdaptiveAction("crossfade");
+        recentCrossfade.setCreatedAt(Instant.now().minusSeconds(60));
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        when(eegWindowMapper.listWindows("session_adaptive")).thenReturn(List.of(previous, recentCrossfade));
+        when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(previous);
+        assignWindowId(203L);
+
+        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(2, bands(0.1, 0.9, 0.0, 1.0, 1.0)));
+
+        assertThat(response.adaptiveAction().type()).isEqualTo("parameter_adjust");
+        assertThat(response.adaptiveAction().reason()).isEqualTo("regen-throttled");
+        assertThat(response.nextSegment()).isNull();
+        verify(sessionSegmentMapper, never()).insert(any(SessionSegmentRow.class));
+    }
+
+    @Test
+    void submitWindowRejectsForeignSessionAndInvalidBody() {
+        when(adaptiveSessionMapper.findById("foreign")).thenReturn(session("active", "other_device"));
+        assertThatThrownBy(() -> service.submitWindow("foreign", DEVICE_ID, windowRequest(1, bands(0.1, 0.2, 0.3, 0.2, 0.1))))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code)
+                .isEqualTo(ErrorCode.ADAPTIVE_SESSION_NOT_FOUND);
+
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        assertThatThrownBy(() -> service.submitWindow("session_adaptive", DEVICE_ID, null))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code)
+                .isEqualTo(ErrorCode.BAD_REQUEST);
+    }
+
     private AdaptiveSessionRow session(String status, String deviceId) {
         AdaptiveSessionRow row = new AdaptiveSessionRow();
         row.setId("session_adaptive");
@@ -227,6 +350,47 @@ class AdaptiveSessionServiceTest {
             row.setId(100L);
             return null;
         }).when(sessionSegmentMapper).insert(any(SessionSegmentRow.class));
+    }
+
+    private void assignWindowId(Long id) {
+        doAnswer(invocation -> {
+            EegWindowRow row = invocation.getArgument(0);
+            row.setId(id);
+            return null;
+        }).when(eegWindowMapper).insert(any(EegWindowRow.class));
+    }
+
+    private void assignSegmentId(Long id) {
+        doAnswer(invocation -> {
+            SessionSegmentRow row = invocation.getArgument(0);
+            row.setId(id);
+            return null;
+        }).when(sessionSegmentMapper).insert(any(SessionSegmentRow.class));
+    }
+
+    private AdaptiveWindowSubmitRequest windowRequest(int index, AdaptiveWindowSubmitRequest.Bands bands) {
+        return windowRequest(index, bands, true, 0.9);
+    }
+
+    private AdaptiveWindowSubmitRequest windowRequest(int index,
+                                                      AdaptiveWindowSubmitRequest.Bands bands,
+                                                      boolean signalOk,
+                                                      double qualityScore) {
+        return new AdaptiveWindowSubmitRequest(
+                index,
+                Instant.parse("2026-06-07T00:05:00Z"),
+                300,
+                76800L,
+                256.0,
+                bands,
+                "alpha",
+                qualityScore,
+                signalOk
+        );
+    }
+
+    private AdaptiveWindowSubmitRequest.Bands bands(double delta, double theta, double alpha, double beta, double gamma) {
+        return new AdaptiveWindowSubmitRequest.Bands(delta, theta, alpha, beta, gamma);
     }
 
     private SessionSegmentRow segment(Long id, int index, String status) {
