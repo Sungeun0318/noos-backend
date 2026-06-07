@@ -4,6 +4,8 @@ import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionResponse;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartRequest;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartResponse;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStatusResponse;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitRequest;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitResponse;
 import com.noos.backend.mobile.adaptive.dto.PauseAdaptiveSessionRequest;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSessionService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +36,13 @@ public class AdaptiveSessionController {
     public AdaptiveSessionResponse get(@RequestHeader("x-device-id") String deviceId,
                                        @PathVariable String sessionId) {
         return adaptiveSessionService.get(sessionId, deviceId);
+    }
+
+    @PostMapping("/{sessionId}/windows")
+    public AdaptiveWindowSubmitResponse submitWindow(@RequestHeader("x-device-id") String deviceId,
+                                                     @PathVariable String sessionId,
+                                                     @RequestBody AdaptiveWindowSubmitRequest request) {
+        return adaptiveSessionService.submitWindow(sessionId, deviceId, request);
     }
 
     @PostMapping("/{sessionId}/pause")

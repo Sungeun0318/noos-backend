@@ -5,6 +5,8 @@ import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionRow;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartRequest;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartResponse;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStatusResponse;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitRequest;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitResponse;
 import com.noos.backend.mobile.adaptive.dto.EegWindowRow;
 import com.noos.backend.mobile.adaptive.dto.PauseAdaptiveSessionRequest;
 import com.noos.backend.mobile.adaptive.dto.SessionSegmentRow;
@@ -14,11 +16,13 @@ import com.noos.backend.mobile.adaptive.mapper.SessionSegmentMapper;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.RequestContext;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -37,13 +41,22 @@ public class AdaptiveSessionService {
     private final AdaptiveSessionMapper adaptiveSessionMapper;
     private final EegWindowMapper eegWindowMapper;
     private final SessionSegmentMapper sessionSegmentMapper;
+    private final AdaptiveEegStateMapper adaptiveEegStateMapper;
+    private final AdaptiveActionResolver adaptiveActionResolver;
+    private final Duration minRegenInterval;
 
     public AdaptiveSessionService(AdaptiveSessionMapper adaptiveSessionMapper,
                                   EegWindowMapper eegWindowMapper,
-                                  SessionSegmentMapper sessionSegmentMapper) {
+                                  SessionSegmentMapper sessionSegmentMapper,
+                                  AdaptiveEegStateMapper adaptiveEegStateMapper,
+                                  AdaptiveActionResolver adaptiveActionResolver,
+                                  @Value("${noos.mobile.adaptive.min-regen-interval-sec:300}") long minRegenIntervalSec) {
         this.adaptiveSessionMapper = adaptiveSessionMapper;
         this.eegWindowMapper = eegWindowMapper;
         this.sessionSegmentMapper = sessionSegmentMapper;
+        this.adaptiveEegStateMapper = adaptiveEegStateMapper;
+        this.adaptiveActionResolver = adaptiveActionResolver;
+        this.minRegenInterval = Duration.ofSeconds(Math.max(0L, minRegenIntervalSec));
     }
 
     public AdaptiveSessionStartResponse start(AdaptiveSessionStartRequest request, String deviceId) {
@@ -112,6 +125,71 @@ public class AdaptiveSessionService {
         Instant now = Instant.now();
         adaptiveSessionMapper.updateStatus(sessionId, "ended", null, null, now);
         return new AdaptiveSessionStatusResponse(sessionId, "ended", null, null, now);
+    }
+
+    public AdaptiveWindowSubmitResponse submitWindow(String sessionId,
+                                                     String deviceId,
+                                                     AdaptiveWindowSubmitRequest request) {
+        AdaptiveSessionRow session = findVisibleSession(sessionId, deviceId);
+        requireStatus(session, "active", "submit window");
+        validateWindowRequest(request);
+
+        Instant now = Instant.now();
+        List<EegWindowRow> windows = eegWindowMapper.listWindows(sessionId);
+        EegWindowRow previousWindow = eegWindowMapper.findLatestWindow(sessionId);
+        AdaptiveWindowSubmitResponse.SixAxis measuredSixAxis = adaptiveEegStateMapper.fromBands(request.bands());
+        AdaptiveWindowSubmitResponse.SixAxis sixAxis = shouldHoldPreviousState(request)
+                ? sixAxisFromPrevious(previousWindow)
+                : measuredSixAxis;
+        AdaptiveWindowSubmitResponse.AdaptiveAction action = adaptiveActionResolver.resolve(
+                sixAxis,
+                previousWindow,
+                windows,
+                request.signalOk(),
+                request.qualityScore(),
+                session.getCurrentPlanet(),
+                now,
+                minRegenInterval
+        );
+
+        EegWindowRow window = new EegWindowRow();
+        window.setAdaptiveSessionId(sessionId);
+        window.setWindowIndex(request.windowIndex());
+        window.setWindowStartAt(request.windowStartAt());
+        window.setWindowEndAt(request.windowStartAt().plusSeconds(request.windowDurationSec()));
+        window.setWindowDurationSec(request.windowDurationSec());
+        window.setSampleCount(request.sampleCount());
+        window.setSampleRateHz(request.sampleRateHz());
+        window.setDelta(request.bands().delta());
+        window.setTheta(request.bands().theta());
+        window.setAlpha(request.bands().alpha());
+        window.setBeta(request.bands().beta());
+        window.setGamma(request.bands().gamma());
+        window.setDominantBand(normalizeDominantBand(request.dominantBand()));
+        window.setQualityScore(request.qualityScore());
+        window.setSignalOk(request.signalOk());
+        window.setFocusReadiness(sixAxis.focusReadiness());
+        window.setStressLoad(sixAxis.stressLoad());
+        window.setFatigueRisk(sixAxis.fatigueRisk());
+        window.setRelaxationLevel(sixAxis.relaxationLevel());
+        window.setCorticalArousal(sixAxis.corticalArousal());
+        window.setMentalWorkload(sixAxis.mentalWorkload());
+        window.setStateLabel(adaptiveEegStateMapper.stateLabel(sixAxis));
+        window.setAdaptiveAction(action.type());
+        window.setCreatedAt(now);
+        eegWindowMapper.insert(window);
+
+        AdaptiveWindowSubmitResponse.NextSegment nextSegment = null;
+        if ("crossfade".equals(action.type())) {
+            SessionSegmentRow segment = createPendingSegment(session, window.getId(), now, action);
+            nextSegment = new AdaptiveWindowSubmitResponse.NextSegment(
+                    segment.getId(),
+                    segment.getSegmentIndex(),
+                    segment.getStatus()
+            );
+        }
+
+        return new AdaptiveWindowSubmitResponse(window.getId(), sixAxis, action, nextSegment);
     }
 
     private AdaptiveSessionRow findVisibleSession(String sessionId, String deviceId) {
@@ -225,6 +303,96 @@ public class AdaptiveSessionService {
     private List<EegWindowRow> recentWindows(List<EegWindowRow> windows) {
         int from = Math.max(0, windows.size() - RECENT_WINDOW_LIMIT);
         return windows.subList(from, windows.size());
+    }
+
+    private SessionSegmentRow createPendingSegment(AdaptiveSessionRow session,
+                                                   Long windowId,
+                                                   Instant now,
+                                                   AdaptiveWindowSubmitResponse.AdaptiveAction action) {
+        int nextIndex = sessionSegmentMapper.listSegments(session.getId()).stream()
+                .map(SessionSegmentRow::getSegmentIndex)
+                .filter(index -> index != null)
+                .max(Integer::compareTo)
+                .map(index -> index + 1)
+                .orElse(0);
+
+        SessionSegmentRow segment = new SessionSegmentRow();
+        segment.setAdaptiveSessionId(session.getId());
+        segment.setSegmentIndex(nextIndex);
+        segment.setDrivenByWindowId(windowId);
+        segment.setPlanet(session.getCurrentPlanet());
+        segment.setParamsJson(actionParamsJson(action));
+        segment.setStatus("pending");
+        segment.setFallback(false);
+        segment.setDurationSec(SEED_SEGMENT_DURATION_SEC);
+        segment.setCreatedAt(now);
+        sessionSegmentMapper.insert(segment);
+        return segment;
+    }
+
+    private String actionParamsJson(AdaptiveWindowSubmitResponse.AdaptiveAction action) {
+        return "{\"adaptiveAction\":\"" + action.type()
+                + "\",\"reason\":\"" + action.reason()
+                + "\",\"volumeScale\":" + action.volumeScale()
+                + "}";
+    }
+
+    private boolean shouldHoldPreviousState(AdaptiveWindowSubmitRequest request) {
+        return Boolean.FALSE.equals(request.signalOk()) || request.qualityScore() < 0.35;
+    }
+
+    private AdaptiveWindowSubmitResponse.SixAxis sixAxisFromPrevious(EegWindowRow previousWindow) {
+        if (previousWindow == null) {
+            return new AdaptiveWindowSubmitResponse.SixAxis(0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
+        }
+        return new AdaptiveWindowSubmitResponse.SixAxis(
+                clamp01(previousWindow.getFocusReadiness()),
+                clamp01(previousWindow.getStressLoad()),
+                clamp01(previousWindow.getFatigueRisk()),
+                clamp01(previousWindow.getRelaxationLevel()),
+                clamp01(previousWindow.getCorticalArousal()),
+                clamp01(previousWindow.getMentalWorkload())
+        );
+    }
+
+    private double clamp01(Double value) {
+        if (value == null) {
+            return 0.5;
+        }
+        return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private void validateWindowRequest(AdaptiveWindowSubmitRequest request) {
+        if (request == null
+                || request.windowIndex() == null
+                || request.windowIndex() < 0
+                || request.windowStartAt() == null
+                || request.windowDurationSec() == null
+                || request.windowDurationSec() <= 0
+                || request.sampleCount() == null
+                || request.sampleCount() <= 0
+                || request.sampleRateHz() == null
+                || request.sampleRateHz() <= 0.0
+                || request.signalOk() == null
+                || request.qualityScore() == null
+                || request.qualityScore() < 0.0
+                || request.qualityScore() > 1.0
+                || request.bands() == null
+                || !validBand(request.bands().delta())
+                || !validBand(request.bands().theta())
+                || !validBand(request.bands().alpha())
+                || !validBand(request.bands().beta())
+                || !validBand(request.bands().gamma())) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "invalid adaptive window payload");
+        }
+    }
+
+    private boolean validBand(Double value) {
+        return value != null && value >= 0.0 && value <= 1.0 && Double.isFinite(value);
+    }
+
+    private String normalizeDominantBand(String dominantBand) {
+        return dominantBand == null || dominantBand.isBlank() ? "unknown" : dominantBand.trim();
     }
 
     private String normalizeSeedSource(String seedSource) {
