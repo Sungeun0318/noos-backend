@@ -20,6 +20,8 @@ import com.noos.backend.mobile.adaptive.mapper.EegWindowMapper;
 import com.noos.backend.mobile.adaptive.mapper.SessionSegmentMapper;
 import com.noos.backend.mobile.adaptive.service.AdaptiveActionResolver;
 import com.noos.backend.mobile.adaptive.service.AdaptiveEegStateMapper;
+import com.noos.backend.mobile.adaptive.service.AdaptiveSegmentContext;
+import com.noos.backend.mobile.adaptive.service.AdaptiveSegmentWorker;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSessionService;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
@@ -48,6 +50,9 @@ class AdaptiveSessionServiceTest {
     @Mock
     private SessionSegmentMapper sessionSegmentMapper;
 
+    @Mock
+    private AdaptiveSegmentWorker adaptiveSegmentWorker;
+
     private AdaptiveSessionService service;
 
     @BeforeEach
@@ -58,6 +63,7 @@ class AdaptiveSessionServiceTest {
                 sessionSegmentMapper,
                 new AdaptiveEegStateMapper(),
                 new AdaptiveActionResolver(),
+                adaptiveSegmentWorker,
                 300
         );
     }
@@ -100,6 +106,19 @@ class AdaptiveSessionServiceTest {
         assertThat(response.status()).isEqualTo("active");
         assertThat(response.seedSegment().segmentId()).isEqualTo(100L);
         assertThat(response.seedSegment().status()).isEqualTo("pending");
+
+        ArgumentCaptor<AdaptiveSegmentContext> contextCaptor = ArgumentCaptor.forClass(AdaptiveSegmentContext.class);
+        verify(adaptiveSegmentWorker).run(org.mockito.ArgumentMatchers.eq(100L), contextCaptor.capture());
+        assertThat(contextCaptor.getValue().adaptiveSessionId()).isEqualTo(session.getId());
+        assertThat(contextCaptor.getValue().planet()).isEqualTo("Mars");
+        assertThat(contextCaptor.getValue().durationSec()).isEqualTo(120);
+        assertThat(contextCaptor.getValue().sixAxisMap())
+                .containsEntry("focus_readiness", 0.5)
+                .containsEntry("stress_load", 0.3)
+                .containsEntry("fatigue_risk", 0.2)
+                .containsEntry("relaxation_level", 0.6)
+                .containsEntry("cortical_arousal", 0.45)
+                .containsEntry("mental_workload", 0.25);
     }
 
     @Test
@@ -278,6 +297,12 @@ class AdaptiveSessionServiceTest {
         assertThat(segmentCaptor.getValue().getStatus()).isEqualTo("pending");
         assertThat(segmentCaptor.getValue().getDurationSec()).isEqualTo(120);
         assertThat(segmentCaptor.getValue().getParamsJson()).contains("\"adaptiveAction\":\"crossfade\"");
+
+        ArgumentCaptor<AdaptiveSegmentContext> contextCaptor = ArgumentCaptor.forClass(AdaptiveSegmentContext.class);
+        verify(adaptiveSegmentWorker).run(org.mockito.ArgumentMatchers.eq(101L), contextCaptor.capture());
+        assertThat(contextCaptor.getValue().adaptiveSessionId()).isEqualTo("session_adaptive");
+        assertThat(contextCaptor.getValue().planet()).isEqualTo("Mars");
+        assertThat(contextCaptor.getValue().sixAxisMap()).containsEntry("stress_load", 1.0);
     }
 
     @Test
