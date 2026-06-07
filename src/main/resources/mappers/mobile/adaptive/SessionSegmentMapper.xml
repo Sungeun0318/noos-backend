@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.adaptive.mapper.SessionSegmentMapper">
+
+    <resultMap id="SessionSegmentRowMap" type="com.noos.backend.mobile.adaptive.dto.SessionSegmentRow">
+        <id property="id" column="id" />
+        <result property="adaptiveSessionId" column="adaptive_session_id" />
+        <result property="segmentIndex" column="segment_index" />
+        <result property="drivenByWindowId" column="driven_by_window_id" />
+        <result property="planet" column="planet" />
+        <result property="paramsJson" column="params_json" />
+        <result property="audioId" column="audio_id" />
+        <result property="status" column="status" />
+        <result property="fallback" column="is_fallback" />
+        <result property="genStartedAt" column="gen_started_at" />
+        <result property="genReadyAt" column="gen_ready_at" />
+        <result property="playedAt" column="played_at" />
+        <result property="durationSec" column="duration_sec" />
+        <result property="errorCode" column="error_code" />
+        <result property="createdAt" column="created_at" />
+    </resultMap>
+
+    <sql id="BaseColumns">
+        id,
+        adaptive_session_id,
+        segment_index,
+        driven_by_window_id,
+        planet,
+        params_json,
+        audio_id,
+        status,
+        is_fallback,
+        gen_started_at,
+        gen_ready_at,
+        played_at,
+        duration_sec,
+        error_code,
+        created_at
+    </sql>
+
+    <insert id="insert" parameterType="com.noos.backend.mobile.adaptive.dto.SessionSegmentRow" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO session_segment (
+            adaptive_session_id,
+            segment_index,
+            driven_by_window_id,
+            planet,
+            params_json,
+            audio_id,
+            status,
+            is_fallback,
+            gen_started_at,
+            gen_ready_at,
+            played_at,
+            duration_sec,
+            error_code,
+            created_at
+        ) VALUES (
+            #{adaptiveSessionId},
+            #{segmentIndex},
+            #{drivenByWindowId},
+            #{planet},
+            CAST(#{paramsJson} AS JSON),
+            #{audioId},
+            #{status},
+            #{fallback},
+            #{genStartedAt},
+            #{genReadyAt},
+            #{playedAt},
+            #{durationSec},
+            #{errorCode},
+            #{createdAt}
+        )
+    </insert>
+
+    <select id="findById" resultMap="SessionSegmentRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM session_segment
+        WHERE id = #{id}
+    </select>
+
+    <select id="listSegments" resultMap="SessionSegmentRowMap">
+        SELECT
+        <include refid="BaseColumns" />
+        FROM session_segment
+        WHERE adaptive_session_id = #{adaptiveSessionId}
+        ORDER BY segment_index ASC
+    </select>
+
+    <update id="updateStatus">
+        UPDATE session_segment
+        <set>
+            status = #{status}
+            <if test="audioId != null">, audio_id = #{audioId}</if>
+            <if test="genStartedAt != null">, gen_started_at = #{genStartedAt}</if>
+            <if test="genReadyAt != null">, gen_ready_at = #{genReadyAt}</if>
+            <if test="playedAt != null">, played_at = #{playedAt}</if>
+            <if test="errorCode != null">, error_code = #{errorCode}</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+</mapper>
