@@ -11,10 +11,13 @@ import static org.mockito.Mockito.when;
 
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionRow;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartRequest;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRequest;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRow;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitRequest;
 import com.noos.backend.mobile.adaptive.dto.EegWindowRow;
 import com.noos.backend.mobile.adaptive.dto.PauseAdaptiveSessionRequest;
 import com.noos.backend.mobile.adaptive.dto.SessionSegmentRow;
+import com.noos.backend.mobile.adaptive.mapper.AdaptiveFeedbackMapper;
 import com.noos.backend.mobile.adaptive.mapper.AdaptiveSessionMapper;
 import com.noos.backend.mobile.adaptive.mapper.EegWindowMapper;
 import com.noos.backend.mobile.adaptive.mapper.SessionSegmentMapper;
@@ -45,6 +48,9 @@ class AdaptiveSessionServiceTest {
     private AdaptiveSessionMapper adaptiveSessionMapper;
 
     @Mock
+    private AdaptiveFeedbackMapper adaptiveFeedbackMapper;
+
+    @Mock
     private EegWindowMapper eegWindowMapper;
 
     @Mock
@@ -59,6 +65,7 @@ class AdaptiveSessionServiceTest {
     void setUp() {
         service = new AdaptiveSessionService(
                 adaptiveSessionMapper,
+                adaptiveFeedbackMapper,
                 eegWindowMapper,
                 sessionSegmentMapper,
                 new AdaptiveEegStateMapper(),
@@ -354,6 +361,77 @@ class AdaptiveSessionServiceTest {
                 .isInstanceOf(ApiException.class)
                 .extracting(error -> ((ApiException) error).code)
                 .isEqualTo(ErrorCode.BAD_REQUEST);
+    }
+
+    @Test
+    void submitFeedbackUpsertsClampedRow() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("ended", DEVICE_ID));
+
+        var response = service.submitFeedback("session_adaptive", DEVICE_ID, new AdaptiveFeedbackRequest(
+                1.2,
+                -0.5,
+                0.75,
+                "  좋았어요  ",
+                false
+        ));
+
+        ArgumentCaptor<AdaptiveFeedbackRow> rowCaptor = ArgumentCaptor.forClass(AdaptiveFeedbackRow.class);
+        verify(adaptiveFeedbackMapper).upsert(rowCaptor.capture());
+        AdaptiveFeedbackRow row = rowCaptor.getValue();
+        assertThat(row.getAdaptiveSessionId()).isEqualTo("session_adaptive");
+        assertThat(row.getMusicFit()).isEqualTo(1.0);
+        assertThat(row.getFocusRelaxHelp()).isZero();
+        assertThat(row.getTransitionNatural()).isEqualTo(0.75);
+        assertThat(row.getMemo()).isEqualTo("좋았어요");
+        assertThat(row.isSkipped()).isFalse();
+        assertThat(row.getCreatedAt()).isNotNull();
+        assertThat(response.ok()).isTrue();
+        assertThat(response.savedAt()).isEqualTo(row.getCreatedAt());
+    }
+
+    @Test
+    void submitFeedbackStoresSkippedRow() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("ended", DEVICE_ID));
+
+        service.submitFeedback("session_adaptive", DEVICE_ID, new AdaptiveFeedbackRequest(
+                null,
+                null,
+                null,
+                null,
+                true
+        ));
+
+        ArgumentCaptor<AdaptiveFeedbackRow> rowCaptor = ArgumentCaptor.forClass(AdaptiveFeedbackRow.class);
+        verify(adaptiveFeedbackMapper).upsert(rowCaptor.capture());
+        assertThat(rowCaptor.getValue().isSkipped()).isTrue();
+        assertThat(rowCaptor.getValue().getMusicFit()).isNull();
+    }
+
+    @Test
+    void submitFeedbackRejectsMissingOrForeignSession() {
+        when(adaptiveSessionMapper.findById("missing")).thenReturn(null);
+        when(adaptiveSessionMapper.findById("foreign")).thenReturn(session("ended", "other_device"));
+
+        assertThatThrownBy(() -> service.submitFeedback("missing", DEVICE_ID, new AdaptiveFeedbackRequest(
+                0.5,
+                0.5,
+                0.5,
+                "",
+                false
+        )))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code)
+                .isEqualTo(ErrorCode.ADAPTIVE_SESSION_NOT_FOUND);
+        assertThatThrownBy(() -> service.submitFeedback("foreign", DEVICE_ID, new AdaptiveFeedbackRequest(
+                0.5,
+                0.5,
+                0.5,
+                "",
+                false
+        )))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code)
+                .isEqualTo(ErrorCode.ADAPTIVE_SESSION_NOT_FOUND);
     }
 
     private AdaptiveSessionRow session(String status, String deviceId) {

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.noos.backend.mobile.adaptive.mapper.AdaptiveFeedbackMapper">
+
+    <resultMap id="AdaptiveFeedbackRowMap" type="com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRow">
+        <id property="adaptiveSessionId" column="adaptive_session_id" />
+        <result property="musicFit" column="music_fit" />
+        <result property="focusRelaxHelp" column="focus_relax_help" />
+        <result property="transitionNatural" column="transition_natural" />
+        <result property="memo" column="memo" />
+        <result property="skipped" column="skipped" />
+        <result property="createdAt" column="created_at" />
+    </resultMap>
+
+    <insert id="upsert" parameterType="com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRow">
+        INSERT INTO adaptive_session_feedback (
+            adaptive_session_id,
+            music_fit,
+            focus_relax_help,
+            transition_natural,
+            memo,
+            skipped,
+            created_at
+        ) VALUES (
+            #{adaptiveSessionId},
+            #{musicFit},
+            #{focusRelaxHelp},
+            #{transitionNatural},
+            #{memo},
+            #{skipped},
+            #{createdAt}
+        )
+        ON DUPLICATE KEY UPDATE
+            music_fit = VALUES(music_fit),
+            focus_relax_help = VALUES(focus_relax_help),
+            transition_natural = VALUES(transition_natural),
+            memo = VALUES(memo),
+            skipped = VALUES(skipped),
+            created_at = VALUES(created_at)
+    </insert>
+
+    <select id="findBySessionId" resultMap="AdaptiveFeedbackRowMap">
+        SELECT
+            adaptive_session_id,
+            music_fit,
+            focus_relax_help,
+            transition_natural,
+            memo,
+            skipped,
+            created_at
+        FROM adaptive_session_feedback
+        WHERE adaptive_session_id = #{adaptiveSessionId}
+    </select>
+
+</mapper>

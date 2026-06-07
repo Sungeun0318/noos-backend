@@ -1,5 +1,8 @@
 package com.noos.backend.mobile.adaptive.service;
 
+import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRequest;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackResponse;
+import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRow;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionResponse;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionRow;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartRequest;
@@ -10,6 +13,7 @@ import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitResponse;
 import com.noos.backend.mobile.adaptive.dto.EegWindowRow;
 import com.noos.backend.mobile.adaptive.dto.PauseAdaptiveSessionRequest;
 import com.noos.backend.mobile.adaptive.dto.SessionSegmentRow;
+import com.noos.backend.mobile.adaptive.mapper.AdaptiveFeedbackMapper;
 import com.noos.backend.mobile.adaptive.mapper.AdaptiveSessionMapper;
 import com.noos.backend.mobile.adaptive.mapper.EegWindowMapper;
 import com.noos.backend.mobile.adaptive.mapper.SessionSegmentMapper;
@@ -49,6 +53,7 @@ public class AdaptiveSessionService {
     private static final Set<String> NEXT_SEGMENT_STATUSES = Set.of("pending", "generating");
 
     private final AdaptiveSessionMapper adaptiveSessionMapper;
+    private final AdaptiveFeedbackMapper adaptiveFeedbackMapper;
     private final EegWindowMapper eegWindowMapper;
     private final SessionSegmentMapper sessionSegmentMapper;
     private final AdaptiveEegStateMapper adaptiveEegStateMapper;
@@ -57,6 +62,7 @@ public class AdaptiveSessionService {
     private final Duration minRegenInterval;
 
     public AdaptiveSessionService(AdaptiveSessionMapper adaptiveSessionMapper,
+                                  AdaptiveFeedbackMapper adaptiveFeedbackMapper,
                                   EegWindowMapper eegWindowMapper,
                                   SessionSegmentMapper sessionSegmentMapper,
                                   AdaptiveEegStateMapper adaptiveEegStateMapper,
@@ -64,6 +70,7 @@ public class AdaptiveSessionService {
                                   AdaptiveSegmentWorker adaptiveSegmentWorker,
                                   @Value("${noos.mobile.adaptive.min-regen-interval-sec:300}") long minRegenIntervalSec) {
         this.adaptiveSessionMapper = adaptiveSessionMapper;
+        this.adaptiveFeedbackMapper = adaptiveFeedbackMapper;
         this.eegWindowMapper = eegWindowMapper;
         this.sessionSegmentMapper = sessionSegmentMapper;
         this.adaptiveEegStateMapper = adaptiveEegStateMapper;
@@ -144,6 +151,25 @@ public class AdaptiveSessionService {
         Instant now = Instant.now();
         adaptiveSessionMapper.updateStatus(sessionId, "ended", null, null, now);
         return new AdaptiveSessionStatusResponse(sessionId, "ended", null, null, now);
+    }
+
+    public AdaptiveFeedbackResponse submitFeedback(String sessionId,
+                                                   String deviceId,
+                                                   AdaptiveFeedbackRequest request) {
+        findVisibleSession(sessionId, deviceId);
+        Instant now = Instant.now();
+
+        AdaptiveFeedbackRow row = new AdaptiveFeedbackRow();
+        row.setAdaptiveSessionId(sessionId);
+        row.setMusicFit(clampRating(request == null ? null : request.musicFit()));
+        row.setFocusRelaxHelp(clampRating(request == null ? null : request.focusRelaxHelp()));
+        row.setTransitionNatural(clampRating(request == null ? null : request.transitionNatural()));
+        row.setMemo(truncateMemo(request == null ? null : request.memo()));
+        row.setSkipped(request != null && Boolean.TRUE.equals(request.skipped()));
+        row.setCreatedAt(now);
+        adaptiveFeedbackMapper.upsert(row);
+
+        return new AdaptiveFeedbackResponse(true, now);
     }
 
     public AdaptiveWindowSubmitResponse submitWindow(String sessionId,
@@ -240,6 +266,24 @@ public class AdaptiveSessionService {
                 ErrorCode.ADAPTIVE_SESSION_STATE_CONFLICT,
                 "Cannot " + action + " adaptive session " + session.getId() + " from status " + session.getStatus()
         );
+    }
+
+    private Double clampRating(Double value) {
+        if (value == null || !Double.isFinite(value)) {
+            return null;
+        }
+        return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private String truncateMemo(String memo) {
+        if (memo == null) {
+            return null;
+        }
+        String trimmed = memo.trim();
+        if (trimmed.length() <= 500) {
+            return trimmed;
+        }
+        return trimmed.substring(0, 500);
     }
 
     private AdaptiveSessionResponse toResponse(AdaptiveSessionRow session,
