@@ -19,7 +19,9 @@ import com.noos.backend.mobile.common.RequestContext;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +33,14 @@ public class AdaptiveSessionService {
     private static final String DEFAULT_PLANET = "Neptune";
     private static final int SEED_SEGMENT_DURATION_SEC = 120;
     private static final int RECENT_WINDOW_LIMIT = 5;
+    private static final Map<String, Double> NEUTRAL_SEED_STATE = Map.of(
+            "focus_readiness", 0.5,
+            "stress_load", 0.3,
+            "fatigue_risk", 0.2,
+            "relaxation_level", 0.6,
+            "cortical_arousal", 0.45,
+            "mental_workload", 0.25
+    );
     private static final Set<String> SEED_SOURCES = Set.of("survey", "eeg", "hybrid", "none");
     private static final Set<String> PLANETS = Set.of(
             "Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"
@@ -43,6 +53,7 @@ public class AdaptiveSessionService {
     private final SessionSegmentMapper sessionSegmentMapper;
     private final AdaptiveEegStateMapper adaptiveEegStateMapper;
     private final AdaptiveActionResolver adaptiveActionResolver;
+    private final AdaptiveSegmentWorker adaptiveSegmentWorker;
     private final Duration minRegenInterval;
 
     public AdaptiveSessionService(AdaptiveSessionMapper adaptiveSessionMapper,
@@ -50,12 +61,14 @@ public class AdaptiveSessionService {
                                   SessionSegmentMapper sessionSegmentMapper,
                                   AdaptiveEegStateMapper adaptiveEegStateMapper,
                                   AdaptiveActionResolver adaptiveActionResolver,
+                                  AdaptiveSegmentWorker adaptiveSegmentWorker,
                                   @Value("${noos.mobile.adaptive.min-regen-interval-sec:300}") long minRegenIntervalSec) {
         this.adaptiveSessionMapper = adaptiveSessionMapper;
         this.eegWindowMapper = eegWindowMapper;
         this.sessionSegmentMapper = sessionSegmentMapper;
         this.adaptiveEegStateMapper = adaptiveEegStateMapper;
         this.adaptiveActionResolver = adaptiveActionResolver;
+        this.adaptiveSegmentWorker = adaptiveSegmentWorker;
         this.minRegenInterval = Duration.ofSeconds(Math.max(0L, minRegenIntervalSec));
     }
 
@@ -86,6 +99,12 @@ public class AdaptiveSessionService {
         seed.setDurationSec(SEED_SEGMENT_DURATION_SEC);
         seed.setCreatedAt(now);
         sessionSegmentMapper.insert(seed);
+        adaptiveSegmentWorker.run(seed.getId(), new AdaptiveSegmentContext(
+                sessionId,
+                planet,
+                SEED_SEGMENT_DURATION_SEC,
+                NEUTRAL_SEED_STATE
+        ));
 
         return new AdaptiveSessionStartResponse(
                 sessionId,
@@ -182,6 +201,12 @@ public class AdaptiveSessionService {
         AdaptiveWindowSubmitResponse.NextSegment nextSegment = null;
         if ("crossfade".equals(action.type())) {
             SessionSegmentRow segment = createPendingSegment(session, window.getId(), now, action);
+            adaptiveSegmentWorker.run(segment.getId(), new AdaptiveSegmentContext(
+                    session.getId(),
+                    session.getCurrentPlanet(),
+                    segment.getDurationSec(),
+                    sixAxisMap(sixAxis)
+            ));
             nextSegment = new AdaptiveWindowSubmitResponse.NextSegment(
                     segment.getId(),
                     segment.getSegmentIndex(),
@@ -335,6 +360,17 @@ public class AdaptiveSessionService {
                 + "\",\"reason\":\"" + action.reason()
                 + "\",\"volumeScale\":" + action.volumeScale()
                 + "}";
+    }
+
+    private Map<String, Double> sixAxisMap(AdaptiveWindowSubmitResponse.SixAxis sixAxis) {
+        Map<String, Double> state = new LinkedHashMap<>();
+        state.put("focus_readiness", sixAxis.focusReadiness());
+        state.put("stress_load", sixAxis.stressLoad());
+        state.put("fatigue_risk", sixAxis.fatigueRisk());
+        state.put("relaxation_level", sixAxis.relaxationLevel());
+        state.put("cortical_arousal", sixAxis.corticalArousal());
+        state.put("mental_workload", sixAxis.mentalWorkload());
+        return state;
     }
 
     private boolean shouldHoldPreviousState(AdaptiveWindowSubmitRequest request) {
