@@ -249,10 +249,10 @@ class AdaptiveSessionServiceTest {
     @Test
     void submitWindowPersistsSixAxisAndNoneActionForStableState() {
         EegWindowRow previous = window(1L, 0);
-        previous.setFocusReadiness(0.445);
-        previous.setStressLoad(0.305);
-        previous.setFatigueRisk(0.29);
-        previous.setRelaxationLevel(0.57);
+        previous.setFocusReadiness(0.45555555555555555);
+        previous.setStressLoad(0.3111111111111111);
+        previous.setFatigueRisk(0.3055555555555556);
+        previous.setRelaxationLevel(0.5777777777777777);
         when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
         when(eegWindowMapper.listWindows("session_adaptive")).thenReturn(List.of(previous));
         when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(previous);
@@ -261,12 +261,12 @@ class AdaptiveSessionServiceTest {
         var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(1, bands(0.1, 0.2, 0.3, 0.2, 0.1)));
 
         assertThat(response.windowId()).isEqualTo(200L);
-        assertThat(response.sixAxis().focusReadiness()).isCloseTo(0.445, within(0.0001));
-        assertThat(response.sixAxis().stressLoad()).isCloseTo(0.305, within(0.0001));
-        assertThat(response.sixAxis().fatigueRisk()).isCloseTo(0.29, within(0.0001));
-        assertThat(response.sixAxis().relaxationLevel()).isCloseTo(0.57, within(0.0001));
-        assertThat(response.sixAxis().corticalArousal()).isCloseTo(0.4375, within(0.0001));
-        assertThat(response.sixAxis().mentalWorkload()).isCloseTo(0.2975, within(0.0001));
+        assertThat(response.sixAxis().focusReadiness()).isCloseTo(0.45555555555555555, within(0.0001));
+        assertThat(response.sixAxis().stressLoad()).isCloseTo(0.3111111111111111, within(0.0001));
+        assertThat(response.sixAxis().fatigueRisk()).isCloseTo(0.3055555555555556, within(0.0001));
+        assertThat(response.sixAxis().relaxationLevel()).isCloseTo(0.5777777777777777, within(0.0001));
+        assertThat(response.sixAxis().corticalArousal()).isCloseTo(0.4388888888888889, within(0.0001));
+        assertThat(response.sixAxis().mentalWorkload()).isCloseTo(0.30833333333333335, within(0.0001));
         assertThat(response.adaptiveAction().type()).isEqualTo("none");
         assertThat(response.nextSegment()).isNull();
 
@@ -289,7 +289,7 @@ class AdaptiveSessionServiceTest {
         assignWindowId(201L);
         assignSegmentId(101L);
 
-        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(1, bands(0.1, 0.9, 0.0, 1.0, 1.0)));
+        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(1, bands(0.0, 0.0, 0.0, 1.0, 0.0)));
 
         assertThat(response.adaptiveAction().type()).isEqualTo("crossfade");
         assertThat(response.adaptiveAction().reason()).isEqualTo("calmer-crossfade");
@@ -309,7 +309,7 @@ class AdaptiveSessionServiceTest {
         verify(adaptiveSegmentWorker).run(org.mockito.ArgumentMatchers.eq(101L), contextCaptor.capture());
         assertThat(contextCaptor.getValue().adaptiveSessionId()).isEqualTo("session_adaptive");
         assertThat(contextCaptor.getValue().planet()).isEqualTo("Mars");
-        assertThat(contextCaptor.getValue().sixAxisMap()).containsEntry("stress_load", 1.0);
+        assertThat(contextCaptor.getValue().sixAxisMap()).containsEntry("stress_load", 0.8);
     }
 
     @Test
@@ -319,7 +319,7 @@ class AdaptiveSessionServiceTest {
         when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(window(1L, 0));
         assignWindowId(202L);
 
-        var request = windowRequest(1, bands(0.1, 0.9, 0.0, 1.0, 1.0), false, 0.9);
+        var request = windowRequest(1, bands(0.0, 0.0, 0.0, 1.0, 0.0), false, 0.9);
         var response = service.submitWindow("session_adaptive", DEVICE_ID, request);
 
         assertThat(response.adaptiveAction().type()).isEqualTo("none");
@@ -340,7 +340,7 @@ class AdaptiveSessionServiceTest {
         when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(previous);
         assignWindowId(203L);
 
-        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(2, bands(0.1, 0.9, 0.0, 1.0, 1.0)));
+        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(2, bands(0.0, 0.0, 0.0, 1.0, 0.0)));
 
         assertThat(response.adaptiveAction().type()).isEqualTo("parameter_adjust");
         assertThat(response.adaptiveAction().reason()).isEqualTo("regen-throttled");
