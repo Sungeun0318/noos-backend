@@ -1,13 +1,8 @@
 package com.noos.backend.ai.controller;
 
-import com.noos.backend.ai.dto.AiFeedbackParseRequest;
-import com.noos.backend.ai.dto.DashboardSummaryRequest;
-import com.noos.backend.ai.dto.DeviceTroubleshootRequest;
 import com.noos.backend.ai.dto.EegRecognitionRequest;
 import com.noos.backend.ai.dto.InterventionGenerationRequest;
 import com.noos.backend.ai.dto.PlanetRecommendationRequest;
-import com.noos.backend.ai.dto.SessionCoachRequest;
-import com.noos.backend.ai.dto.StateExplanationRequest;
 import com.noos.backend.ai.service.NoosAiService;
 import com.noos.backend.auth.service.AuthSessionService;
 import com.noos.backend.auth.session.SessionUser;
@@ -114,34 +109,9 @@ public class NoosAiController {
         return noosAiService.prewarmIntervention();
     }
 
-    @PostMapping("/ai/feedback/parse")
-    public Map<String, Object> parseFeedback(@RequestBody AiFeedbackParseRequest request) {
-        return noosAiService.parseFeedback(request);
-    }
-
     @PostMapping("/ai/planet/recommend")
     public Map<String, Object> recommendPlanet(@RequestBody PlanetRecommendationRequest request) {
         return noosAiService.recommendPlanet(request);
-    }
-
-    @PostMapping("/ai/state/explain")
-    public Map<String, Object> explainState(@RequestBody StateExplanationRequest request) {
-        return noosAiService.explainState(request);
-    }
-
-    @PostMapping("/ai/dashboard/summary")
-    public Map<String, Object> summarizeDashboard(@RequestBody DashboardSummaryRequest request) {
-        return noosAiService.summarizeDashboard(request);
-    }
-
-    @PostMapping("/ai/session/coach")
-    public Map<String, Object> coachSession(@RequestBody SessionCoachRequest request) {
-        return noosAiService.coachSession(request);
-    }
-
-    @PostMapping("/ai/device/troubleshoot")
-    public Map<String, Object> troubleshootDevice(@RequestBody DeviceTroubleshootRequest request) {
-        return noosAiService.troubleshootDevice(request);
     }
 
     @GetMapping("/ai/audio")

@@ -2,14 +2,9 @@ package com.noos.backend.ai.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.noos.backend.ai.dto.AiFeedbackParseRequest;
-import com.noos.backend.ai.dto.DashboardSummaryRequest;
-import com.noos.backend.ai.dto.DeviceTroubleshootRequest;
 import com.noos.backend.ai.dto.EegRecognitionRequest;
 import com.noos.backend.ai.dto.InterventionGenerationRequest;
 import com.noos.backend.ai.dto.PlanetRecommendationRequest;
-import com.noos.backend.ai.dto.SessionCoachRequest;
-import com.noos.backend.ai.dto.StateExplanationRequest;
 import com.noos.backend.lighting.service.WizLightingService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -164,18 +159,6 @@ public class NoosAiService {
         return recognize(request, List.of());
     }
 
-    public Map<String, Object> parseFeedback(AiFeedbackParseRequest request) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("feedbackText", request.feedbackText());
-        payload.put("rating", request.rating());
-        payload.put("planet", request.planet());
-        payload.put("targetState", request.targetState());
-        payload.put("measuredState", request.measuredState());
-        payload.put("measuredSource", request.measuredSource());
-        payload.put("currentState", request.currentState() != null ? request.currentState() : Map.of());
-        return invokeGemmaTask("feedback-parse", payload, true);
-    }
-
     public Map<String, Object> recommendPlanet(PlanetRecommendationRequest request) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("intentText", request.intentText());
@@ -185,42 +168,6 @@ public class NoosAiService {
         payload.put("feedbackHistory", request.feedbackHistory() != null ? request.feedbackHistory() : List.of());
         payload.put("requestedDurationSec", request.requestedDurationSec());
         return invokeGemmaTask("planet-recommendation", payload, true);
-    }
-
-    public Map<String, Object> explainState(StateExplanationRequest request) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("title", request.title());
-        payload.put("stateLabel", request.stateLabel());
-        payload.put("summary", request.summary());
-        payload.put("currentState", request.currentState() != null ? request.currentState() : Map.of());
-        payload.put("targetPlanet", request.targetPlanet());
-        return invokeGemmaTask("state-explanation", payload, true);
-    }
-
-    public Map<String, Object> summarizeDashboard(DashboardSummaryRequest request) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("feedbackHistory", request.feedbackHistory() != null ? request.feedbackHistory() : List.of());
-        payload.put("memoText", request.memoText());
-        payload.put("currentState", request.currentState() != null ? request.currentState() : Map.of());
-        return invokeGemmaTask("dashboard-summary", payload, true);
-    }
-
-    public Map<String, Object> coachSession(SessionCoachRequest request) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("planet", request.planet());
-        payload.put("intentText", request.intentText());
-        payload.put("recommendation", request.recommendation() != null ? request.recommendation() : Map.of());
-        payload.put("recommendedDurationSec", request.recommendedDurationSec());
-        return invokeGemmaTask("session-coach", payload, true);
-    }
-
-    public Map<String, Object> troubleshootDevice(DeviceTroubleshootRequest request) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("issueText", request.issueText());
-        payload.put("stage", request.stage());
-        payload.put("browser", request.browser());
-        payload.put("deviceType", request.deviceType());
-        return invokeGemmaTask("device-troubleshoot", payload, true);
     }
 
     public Map<String, Object> generateIntervention(InterventionGenerationRequest request) {
@@ -291,23 +238,6 @@ public class NoosAiService {
             generationWarning = ACE_STEP_FALLBACK_WARNING;
         }
 
-        Map<String, Object> recognitionResult = request.recognitionResult() != null ? request.recognitionResult() : Map.of();
-        Map<String, Object> intentContext = request.intentContext() != null ? request.intentContext() : Map.of();
-        Map<String, Object> explanationPayload = new LinkedHashMap<>();
-        explanationPayload.put("title", nestedString(recognitionResult, "state_profile", "label"));
-        explanationPayload.put("stateLabel", nestedString(recognitionResult, "state_profile", "label"));
-        explanationPayload.put("summary", "현재 상태와 목표 행성 사이의 전환 계획을 설명합니다.");
-        explanationPayload.put("currentState", payload.getOrDefault("current_state", Map.of()));
-        explanationPayload.put("targetPlanet", request.planet());
-        Map<String, Object> llmStateExplanation = invokeGemmaTaskSafely("state-explanation", explanationPayload);
-
-        Map<String, Object> coachPayload = new LinkedHashMap<>();
-        coachPayload.put("planet", request.planet());
-        coachPayload.put("intentText", stringValue(intentContext.get("intentText")));
-        coachPayload.put("recommendation", mapValue(intentContext.get("recommendation")));
-        coachPayload.put("recommendedDurationSec", request.durationSec() != null ? request.durationSec() : 90);
-        Map<String, Object> llmSessionCoach = invokeGemmaTaskSafely("session-coach", coachPayload);
-
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("interventionResult", interventionResult);
         response.put("audioUrl", audioPath != null ? buildAudioProxyUrl(audioPath) : null);
@@ -315,8 +245,6 @@ public class NoosAiService {
         response.put("trackName", extractTrackName(interventionResult));
         response.put("currentState", payload.get("current_state"));
         response.put("feedbackProfile", payload.getOrDefault("feedback_profile", Map.of()));
-        response.put("llmStateExplanation", llmStateExplanation);
-        response.put("llmSessionCoach", llmSessionCoach);
         response.put("aceStepAvailable", aceStepAvailable);
         response.put("generationWarning", generationWarning);
         response.put("wizLighting", maybeStartWizLighting(interventionResult));
@@ -421,10 +349,6 @@ public class NoosAiService {
             fallback.put("error_detail", error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName());
             return fallback;
         }
-    }
-
-    private Map<String, Object> invokeGemmaTaskSafely(String taskName, Map<String, Object> payload) {
-        return invokeGemmaTask(taskName, payload, false);
     }
 
     private Map<String, Object> buildFeedbackProfile(List<Map<String, Object>> feedbackHistory) {
