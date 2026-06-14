@@ -24,7 +24,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import com.noos.backend.mobile.session.service.GenerationWorker;
 
-@SpringBootTest(properties = "noos.mobile.ratelimit.sessions-create.limit=100")
+@SpringBootTest(properties = {
+        "noos.mobile.ratelimit.sessions-create.limit=100",
+        "noos.mobile.audio.sign-secret=test-audio-sign-secret"
+})
 @AutoConfigureMockMvc
 class MobileSessionControllerTest {
 
@@ -84,6 +87,22 @@ class MobileSessionControllerTest {
                 .andExpect(jsonPath("$.sessionId").value(sessionId))
                 .andExpect(jsonPath("$.status").value("queued"))
                 .andExpect(jsonPath("$.audio").doesNotExist());
+    }
+
+    @Test
+    void getReadySessionIncludesSignedAudioStreamPath() throws Exception {
+        String sessionId = createSession();
+        jdbc.update(
+                "UPDATE mobile_sessions SET status = 'ready', audio_id = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "audio_session_test",
+                sessionId
+        );
+
+        mockMvc.perform(get("/api/mobile/sessions/{id}", sessionId)
+                        .header("x-device-id", DEVICE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.audio.audioId").value("audio_session_test"))
+                .andExpect(jsonPath("$.audio.streamPath", startsWith("/api/mobile/audio/audio_session_test?exp=")));
     }
 
     @Test

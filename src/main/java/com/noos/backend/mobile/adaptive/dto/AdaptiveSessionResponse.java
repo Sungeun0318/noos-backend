@@ -25,6 +25,7 @@ public record AdaptiveSessionResponse(
             String planet,
             String status,
             String audioId,
+            String streamPath,
             boolean fallback,
             int durationSec,
             Instant genStartedAt,

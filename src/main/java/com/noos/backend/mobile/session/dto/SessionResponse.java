@@ -19,7 +19,7 @@ public record SessionResponse(
         Instant startedAt,
         Instant completedAt
 ) {
-    public record AudioInfo(String audioId, Integer durationSec) {
+    public record AudioInfo(String audioId, Integer durationSec, String streamPath) {
     }
 
     public record LightingInfo(String jobId) {

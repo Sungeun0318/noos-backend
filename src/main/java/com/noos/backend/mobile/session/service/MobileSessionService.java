@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
+import com.noos.backend.mobile.audio.service.AudioUrlSigner;
 import com.noos.backend.mobile.session.dto.EnqueueRequest;
 import com.noos.backend.mobile.session.dto.EnqueueResponse;
 import com.noos.backend.mobile.session.dto.FeedbackRequest;
@@ -33,17 +34,20 @@ public class MobileSessionService {
     private final ObjectMapper objectMapper;
     private final GenerationWorker worker;
     private final MeterRegistry meterRegistry;
+    private final AudioUrlSigner audioUrlSigner;
 
     public MobileSessionService(MobileSessionMapper sessionMapper,
                                 SessionFeedbackMapper feedbackMapper,
                                 ObjectMapper objectMapper,
                                 GenerationWorker worker,
-                                MeterRegistry meterRegistry) {
+                                MeterRegistry meterRegistry,
+                                AudioUrlSigner audioUrlSigner) {
         this.sessionMapper = sessionMapper;
         this.feedbackMapper = feedbackMapper;
         this.objectMapper = objectMapper;
         this.worker = worker;
         this.meterRegistry = meterRegistry;
+        this.audioUrlSigner = audioUrlSigner;
     }
 
     public EnqueueResponse enqueue(EnqueueRequest request, String deviceId) {
@@ -149,7 +153,7 @@ public class MobileSessionService {
         if (row.getAudioId() == null || row.getAudioId().isBlank()) {
             return null;
         }
-        return new SessionResponse.AudioInfo(row.getAudioId(), row.getDurationSec());
+        return new SessionResponse.AudioInfo(row.getAudioId(), row.getDurationSec(), audioUrlSigner.streamPath(row.getAudioId()));
     }
 
     private String writeJson(Map<String, Double> currentState) {

@@ -10,6 +10,7 @@ public enum ErrorCode {
     VALIDATION_FAILED(400),
     UNAUTHORIZED(401),
     INVALID_CREDENTIALS(401),
+    AUDIO_SIGNATURE_INVALID(403),
     NOT_FOUND(404),
     SESSION_NOT_FOUND(404),
     ADAPTIVE_SESSION_NOT_FOUND(404),
@@ -55,6 +56,7 @@ public enum ErrorCode {
         return switch (status) {
             case 400 -> BAD_REQUEST;
             case 401 -> UNAUTHORIZED;
+            case 403 -> AUDIO_SIGNATURE_INVALID;
             case 404 -> NOT_FOUND;
             case 409 -> CONFLICT;
             case 410 -> AUDIO_EXPIRED;
