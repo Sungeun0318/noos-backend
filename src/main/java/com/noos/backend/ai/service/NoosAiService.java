@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noos.backend.ai.dto.EegRecognitionRequest;
 import com.noos.backend.ai.dto.InterventionGenerationRequest;
-import com.noos.backend.ai.dto.PlanetRecommendationRequest;
 import com.noos.backend.lighting.service.WizLightingService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -75,9 +74,6 @@ public class NoosAiService {
     private final String aceStepLmModel;
     private final int aceStepRequestDurationCapSec;
     private final int aceStepInferenceSteps;
-    private final boolean gemmaEnabled;
-    private final String gemmaBaseUrl;
-    private final long gemmaTimeoutSec;
     private final WizLightingService wizLightingService;
     private final HttpClient httpClient;
     private final Object aceStepServerLock = new Object();
@@ -97,9 +93,6 @@ public class NoosAiService {
             @Value("${noos.ai.ace-step.lm-model:}") String aceStepLmModel,
             @Value("${noos.ai.ace-step.request-duration-cap-sec:0}") int aceStepRequestDurationCapSec,
             @Value("${noos.ai.ace-step.inference-steps:0}") int aceStepInferenceSteps,
-            @Value("${noos.ai.gemma.enabled:true}") boolean gemmaEnabled,
-            @Value("${noos.ai.gemma.base-url:http://127.0.0.1:8091}") String gemmaBaseUrl,
-            @Value("${noos.ai.gemma.timeout-sec:120}") long gemmaTimeoutSec,
             WizLightingService wizLightingService
     ) {
         this.objectMapper = objectMapper;
@@ -112,12 +105,9 @@ public class NoosAiService {
         this.aceStepLmModel = aceStepLmModel;
         this.aceStepRequestDurationCapSec = aceStepRequestDurationCapSec;
         this.aceStepInferenceSteps = aceStepInferenceSteps;
-        this.gemmaEnabled = gemmaEnabled;
-        this.gemmaBaseUrl = gemmaBaseUrl;
-        this.gemmaTimeoutSec = gemmaTimeoutSec;
         this.wizLightingService = wizLightingService;
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(Math.max(5, gemmaTimeoutSec)))
+                .connectTimeout(ACE_STEP_HEALTHCHECK_TIMEOUT)
                 .build();
     }
 
@@ -157,17 +147,6 @@ public class NoosAiService {
 
     public Map<String, Object> recognizeFromSummary(EegRecognitionRequest request) {
         return recognize(request, List.of());
-    }
-
-    public Map<String, Object> recommendPlanet(PlanetRecommendationRequest request) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("intentText", request.intentText());
-        payload.put("desiredOutcome", request.desiredOutcome());
-        payload.put("memoText", request.memoText());
-        payload.put("currentState", request.currentState() != null ? request.currentState() : Map.of());
-        payload.put("feedbackHistory", request.feedbackHistory() != null ? request.feedbackHistory() : List.of());
-        payload.put("requestedDurationSec", request.requestedDurationSec());
-        return invokeGemmaTask("planet-recommendation", payload, true);
     }
 
     public Map<String, Object> generateIntervention(InterventionGenerationRequest request) {
@@ -304,51 +283,6 @@ public class NoosAiService {
         return ResponseEntity.ok()
                 .contentType(mediaType)
                 .body(new FileSystemResource(audioPath));
-    }
-
-    private Map<String, Object> invokeGemmaTask(String taskName, Map<String, Object> payload, boolean failOnUnavailable) {
-        if (!gemmaEnabled) {
-            if (failOnUnavailable) {
-                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Gemma integration is disabled");
-            }
-            return Map.of("task", taskName, "output", Map.of(), "response_source", "disabled");
-        }
-
-        try {
-            String requestBody = objectMapper.writeValueAsString(Map.of("payload", payload));
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(gemmaBaseUrl.replaceAll("/$", "") + "/tasks/" + taskName))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(Math.max(10, gemmaTimeoutSec)))
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                if (failOnUnavailable) {
-                    throw new ResponseStatusException(
-                            HttpStatus.BAD_GATEWAY,
-                            "Gemma task failed: " + response.statusCode() + " " + response.body()
-                    );
-                }
-                return Map.of("task", taskName, "output", Map.of(), "response_source", "error");
-            }
-
-            return objectMapper.readValue(response.body(), MAP_TYPE);
-        } catch (IOException | InterruptedException error) {
-            if (error instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
-            if (failOnUnavailable) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to reach Gemma task service", error);
-            }
-            Map<String, Object> fallback = new LinkedHashMap<>();
-            fallback.put("task", taskName);
-            fallback.put("output", Map.of());
-            fallback.put("response_source", "error");
-            fallback.put("error_detail", error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName());
-            return fallback;
-        }
     }
 
     private Map<String, Object> buildFeedbackProfile(List<Map<String, Object>> feedbackHistory) {
