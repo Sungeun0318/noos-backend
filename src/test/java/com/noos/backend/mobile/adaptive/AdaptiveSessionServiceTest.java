@@ -28,6 +28,7 @@ import com.noos.backend.mobile.adaptive.service.AdaptiveActionResolver;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSegmentContext;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSegmentWorker;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSessionService;
+import com.noos.backend.mobile.audio.service.AudioUrlSigner;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.RequestContext;
@@ -65,6 +66,9 @@ class AdaptiveSessionServiceTest {
     @Mock
     private NoosAiService noosAiService;
 
+    @Mock
+    private AudioUrlSigner audioUrlSigner;
+
     private AdaptiveSessionService service;
 
     @BeforeEach
@@ -87,6 +91,7 @@ class AdaptiveSessionServiceTest {
                 noosAiService,
                 new AdaptiveActionResolver(),
                 adaptiveSegmentWorker,
+                audioUrlSigner,
                 300
         );
     }
@@ -167,11 +172,12 @@ class AdaptiveSessionServiceTest {
     @Test
     void getComposesSessionSegmentsAndRecentWindows() {
         AdaptiveSessionRow session = session("active", DEVICE_ID);
+        SessionSegmentRow current = segment(1L, 0, "done");
+        current.setAudioId("audio_segment_1");
+        SessionSegmentRow next = segment(2L, 1, "pending");
         when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session);
-        when(sessionSegmentMapper.listSegments("session_adaptive")).thenReturn(List.of(
-                segment(1L, 0, "done"),
-                segment(2L, 1, "pending")
-        ));
+        when(audioUrlSigner.streamPath("audio_segment_1")).thenReturn("/api/mobile/audio/audio_segment_1?exp=1&sig=test");
+        when(sessionSegmentMapper.listSegments("session_adaptive")).thenReturn(List.of(current, next));
         when(eegWindowMapper.listWindows("session_adaptive")).thenReturn(List.of(
                 window(1L, 0),
                 window(2L, 1),
@@ -185,6 +191,7 @@ class AdaptiveSessionServiceTest {
 
         assertThat(response.status()).isEqualTo("active");
         assertThat(response.currentSegment().segmentId()).isEqualTo(1L);
+        assertThat(response.currentSegment().streamPath()).isEqualTo("/api/mobile/audio/audio_segment_1?exp=1&sig=test");
         assertThat(response.nextSegment().segmentId()).isEqualTo(2L);
         assertThat(response.segments()).hasSize(2);
         assertThat(response.recentWindows())

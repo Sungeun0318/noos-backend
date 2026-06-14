@@ -19,6 +19,7 @@ import com.noos.backend.mobile.adaptive.mapper.AdaptiveFeedbackMapper;
 import com.noos.backend.mobile.adaptive.mapper.AdaptiveSessionMapper;
 import com.noos.backend.mobile.adaptive.mapper.EegWindowMapper;
 import com.noos.backend.mobile.adaptive.mapper.SessionSegmentMapper;
+import com.noos.backend.mobile.audio.service.AudioUrlSigner;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.RequestContext;
@@ -61,6 +62,7 @@ public class AdaptiveSessionService {
     private final NoosAiService noosAiService;
     private final AdaptiveActionResolver adaptiveActionResolver;
     private final AdaptiveSegmentWorker adaptiveSegmentWorker;
+    private final AudioUrlSigner audioUrlSigner;
     private final Duration minRegenInterval;
 
     public AdaptiveSessionService(AdaptiveSessionMapper adaptiveSessionMapper,
@@ -70,6 +72,7 @@ public class AdaptiveSessionService {
                                   NoosAiService noosAiService,
                                   AdaptiveActionResolver adaptiveActionResolver,
                                   AdaptiveSegmentWorker adaptiveSegmentWorker,
+                                  AudioUrlSigner audioUrlSigner,
                                   @Value("${noos.mobile.adaptive.min-regen-interval-sec:300}") long minRegenIntervalSec) {
         this.adaptiveSessionMapper = adaptiveSessionMapper;
         this.adaptiveFeedbackMapper = adaptiveFeedbackMapper;
@@ -78,6 +81,7 @@ public class AdaptiveSessionService {
         this.noosAiService = noosAiService;
         this.adaptiveActionResolver = adaptiveActionResolver;
         this.adaptiveSegmentWorker = adaptiveSegmentWorker;
+        this.audioUrlSigner = audioUrlSigner;
         this.minRegenInterval = Duration.ofSeconds(Math.max(0L, minRegenIntervalSec));
     }
 
@@ -336,6 +340,7 @@ public class AdaptiveSessionService {
                 row.getPlanet(),
                 row.getStatus(),
                 row.getAudioId(),
+                streamPath(row.getAudioId()),
                 row.isFallback(),
                 row.getDurationSec(),
                 row.getGenStartedAt(),
@@ -343,6 +348,13 @@ public class AdaptiveSessionService {
                 row.getPlayedAt(),
                 row.getCreatedAt()
         );
+    }
+
+    private String streamPath(String audioId) {
+        if (audioId == null || audioId.isBlank()) {
+            return null;
+        }
+        return audioUrlSigner.streamPath(audioId);
     }
 
     private AdaptiveSessionResponse.EegWindowView toWindowView(EegWindowRow row) {
