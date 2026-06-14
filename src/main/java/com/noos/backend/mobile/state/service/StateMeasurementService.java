@@ -3,7 +3,6 @@ package com.noos.backend.mobile.state.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noos.backend.ai.dto.EegRecognitionRequest;
-import com.noos.backend.ai.dto.PlanetRecommendationRequest;
 import com.noos.backend.ai.service.NoosAiService;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
@@ -15,7 +14,6 @@ import com.noos.backend.mobile.state.dto.SurveyInput;
 import com.noos.backend.mobile.state.dto.WeightInfo;
 import com.noos.backend.mobile.state.mapper.StateMeasurementMapper;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +26,7 @@ public class StateMeasurementService {
 
     private final StateMeasurementMapper mapper;
     private final NoosAiService noosAiService;
+    private final PlanetRecommender planetRecommender;
     private final ObjectMapper objectMapper;
     private final double configuredSurveyWeight;
     private final double configuredEegWeight;
@@ -35,12 +34,14 @@ public class StateMeasurementService {
 
     public StateMeasurementService(StateMeasurementMapper mapper,
                                    NoosAiService noosAiService,
+                                   PlanetRecommender planetRecommender,
                                    ObjectMapper objectMapper,
                                    @Value("${noos.mobile.measure.weight.survey:0.4}") double configuredSurveyWeight,
                                    @Value("${noos.mobile.measure.weight.eeg:0.6}") double configuredEegWeight,
                                    @Value("${noos.mobile.measure.eeg.min-signal-quality:0.3}") double minSignalQuality) {
         this.mapper = mapper;
         this.noosAiService = noosAiService;
+        this.planetRecommender = planetRecommender;
         this.objectMapper = objectMapper;
         this.configuredSurveyWeight = configuredSurveyWeight;
         this.configuredEegWeight = configuredEegWeight;
@@ -72,23 +73,10 @@ public class StateMeasurementService {
             }
         }
 
-        Map<String, Object> currentStatePayload = new LinkedHashMap<>(currentState);
-
-        Map<String, Object> recommendation = noosAiService.recommendPlanet(new PlanetRecommendationRequest(
-                survey.intentText(),
-                null,
-                null,
-                currentStatePayload,
-                null,
-                null
-        ));
-
-        String recommendedPlanet = firstString(recommendation, "recommendedPlanet", "recommended", "planet");
-        if (recommendedPlanet == null) {
-            recommendedPlanet = "Neptune";
-        }
-        List<String> alternates = stringList(firstPresent(recommendation, "alternates", "candidates"));
-        Double confidence = doubleValue(recommendation.get("confidence"));
+        PlanetRecommender.Recommendation recommendation = planetRecommender.recommend(currentState);
+        String recommendedPlanet = recommendation.recommendedPlanet();
+        List<String> alternates = recommendation.alternates();
+        Double confidence = recommendation.confidence();
 
         Instant now = Instant.now();
         String measurementId = "meas_" + UUID.randomUUID().toString().replace("-", "").substring(0, 24);
@@ -257,25 +245,6 @@ public class StateMeasurementService {
         }
     }
 
-    private String firstString(Map<String, Object> map, String... keys) {
-        Object value = firstPresent(map, keys);
-        if (value == null) {
-            return null;
-        }
-        String string = String.valueOf(value);
-        return string.isBlank() ? null : string;
-    }
-
-    private Object firstPresent(Map<String, Object> map, String... keys) {
-        for (String key : keys) {
-            Object value = map.get(key);
-            if (value != null) {
-                return value;
-            }
-        }
-        return null;
-    }
-
     private Double doubleValue(Object value) {
         if (value instanceof Number number) {
             return number.doubleValue();
@@ -292,19 +261,6 @@ public class StateMeasurementService {
         }
         String string = String.valueOf(value);
         return string.isBlank() ? null : string;
-    }
-
-    private List<String> stringList(Object value) {
-        if (value instanceof List<?> list) {
-            List<String> strings = new ArrayList<>();
-            for (Object item : list) {
-                if (item != null && !String.valueOf(item).isBlank()) {
-                    strings.add(String.valueOf(item));
-                }
-            }
-            return strings;
-        }
-        return List.of();
     }
 
     private record SurveyValues(double focus, double stress, double fatigue, double relaxation, String intentText) {

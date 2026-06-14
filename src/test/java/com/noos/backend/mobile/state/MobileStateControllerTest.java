@@ -10,8 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noos.backend.ai.dto.EegRecognitionRequest;
-import com.noos.backend.ai.dto.PlanetRecommendationRequest;
 import com.noos.backend.ai.service.NoosAiService;
+import com.noos.backend.mobile.state.service.PlanetRecommender;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,13 +39,16 @@ class MobileStateControllerTest {
     @MockBean
     private NoosAiService noosAiService;
 
+    @MockBean
+    private PlanetRecommender planetRecommender;
+
     @BeforeEach
     void setUp() {
-        when(noosAiService.recommendPlanet(any(PlanetRecommendationRequest.class)))
-                .thenReturn(Map.of(
-                        "recommendedPlanet", "Mars",
-                        "alternates", List.of("Earth", "Neptune"),
-                        "confidence", 0.82
+        when(planetRecommender.recommend(any()))
+                .thenReturn(new PlanetRecommender.Recommendation(
+                        "Mars",
+                        List.of("Earth", "Neptune"),
+                        0.82
                 ));
         when(noosAiService.recognizeFromSummary(any(EegRecognitionRequest.class)))
                 .thenReturn(Map.of(
@@ -155,25 +158,24 @@ class MobileStateControllerTest {
     }
 
     @Test
-    void recommendPlanetReceivesCurrentStatePayload() throws Exception {
+    void planetRecommenderReceivesCurrentStatePayload() throws Exception {
         mockMvc.perform(post("/api/mobile/state/measure")
                         .header("x-device-id", DEVICE_ID)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body(Map.of(
-                                "focus", 0.7,
-                                "stress", 0.2,
-                                "fatigue", 0.4,
-                                "relaxation", 0.8,
-                                "intentText", "집중"
-                        ))))
+                .content(body(Map.of(
+                        "focus", 0.7,
+                        "stress", 0.2,
+                        "fatigue", 0.4,
+                        "relaxation", 0.8
+                ))))
                 .andExpect(status().isOk());
 
-        ArgumentCaptor<PlanetRecommendationRequest> captor = ArgumentCaptor.forClass(PlanetRecommendationRequest.class);
-        org.mockito.Mockito.verify(noosAiService).recommendPlanet(captor.capture());
-        PlanetRecommendationRequest request = captor.getValue();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Double>> captor = ArgumentCaptor.forClass(Map.class);
+        org.mockito.Mockito.verify(planetRecommender).recommend(captor.capture());
+        Map<String, Double> currentState = captor.getValue();
 
-        assertThat(request.intentText()).isEqualTo("집중");
-        assertThat(request.currentState())
+        assertThat(currentState)
                 .containsEntry("focus_readiness", 0.7)
                 .containsEntry("stress_load", 0.2)
                 .containsEntry("fatigue_risk", 0.4)
