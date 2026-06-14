@@ -200,12 +200,59 @@ class GenerationWorkerTest {
         MobileSessionRow row = waitForStatus(sessionId, "failed");
         assertThat(row.getStatus()).isEqualTo("failed");
         assertThat(row.getErrorCode()).isEqualTo("GENERATION_FAILED");
+        assertThat(row.getErrorMessage()).isEqualTo("generation unavailable");
         verify(notificationService, timeout(1000)).notifySessionFailed(
                 "dev_generation_worker_test",
                 null,
                 sessionId,
                 "Mars"
         );
+    }
+
+    @Test
+    void workerTruncatesLongFailureMessageBeforeSaving() throws Exception {
+        String sessionId = "session_worker_" + System.nanoTime();
+        insertQueuedSession(sessionId, true);
+        String longMessage = "x".repeat(700);
+
+        when(noosAiService.generateIntervention(any(InterventionGenerationRequest.class)))
+                .thenThrow(new IllegalStateException(longMessage));
+
+        worker.run(sessionId, new GenerationContext(
+                "Mars",
+                60,
+                Map.of("focus_readiness", 0.5),
+                "calm focus",
+                "집중",
+                "hybrid",
+                true
+        ));
+
+        MobileSessionRow row = waitForStatus(sessionId, "failed");
+        assertThat(row.getErrorMessage()).hasSizeLessThanOrEqualTo(500);
+        assertThat(row.getErrorMessage()).endsWith("...");
+    }
+
+    @Test
+    void workerKeepsNullFailureMessageNull() throws Exception {
+        String sessionId = "session_worker_" + System.nanoTime();
+        insertQueuedSession(sessionId, true);
+
+        when(noosAiService.generateIntervention(any(InterventionGenerationRequest.class)))
+                .thenThrow(new IllegalStateException());
+
+        worker.run(sessionId, new GenerationContext(
+                "Mars",
+                60,
+                Map.of("focus_readiness", 0.5),
+                "calm focus",
+                "집중",
+                "hybrid",
+                true
+        ));
+
+        MobileSessionRow row = waitForStatus(sessionId, "failed");
+        assertThat(row.getErrorMessage()).isNull();
     }
 
     private Path createAudioFile() throws Exception {
