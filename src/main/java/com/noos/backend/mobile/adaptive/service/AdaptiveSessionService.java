@@ -1,5 +1,7 @@
 package com.noos.backend.mobile.adaptive.service;
 
+import com.noos.backend.ai.dto.EegRecognitionRequest;
+import com.noos.backend.ai.service.NoosAiService;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRequest;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackResponse;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRow;
@@ -56,7 +58,7 @@ public class AdaptiveSessionService {
     private final AdaptiveFeedbackMapper adaptiveFeedbackMapper;
     private final EegWindowMapper eegWindowMapper;
     private final SessionSegmentMapper sessionSegmentMapper;
-    private final AdaptiveEegStateMapper adaptiveEegStateMapper;
+    private final NoosAiService noosAiService;
     private final AdaptiveActionResolver adaptiveActionResolver;
     private final AdaptiveSegmentWorker adaptiveSegmentWorker;
     private final Duration minRegenInterval;
@@ -65,7 +67,7 @@ public class AdaptiveSessionService {
                                   AdaptiveFeedbackMapper adaptiveFeedbackMapper,
                                   EegWindowMapper eegWindowMapper,
                                   SessionSegmentMapper sessionSegmentMapper,
-                                  AdaptiveEegStateMapper adaptiveEegStateMapper,
+                                  NoosAiService noosAiService,
                                   AdaptiveActionResolver adaptiveActionResolver,
                                   AdaptiveSegmentWorker adaptiveSegmentWorker,
                                   @Value("${noos.mobile.adaptive.min-regen-interval-sec:300}") long minRegenIntervalSec) {
@@ -73,7 +75,7 @@ public class AdaptiveSessionService {
         this.adaptiveFeedbackMapper = adaptiveFeedbackMapper;
         this.eegWindowMapper = eegWindowMapper;
         this.sessionSegmentMapper = sessionSegmentMapper;
-        this.adaptiveEegStateMapper = adaptiveEegStateMapper;
+        this.noosAiService = noosAiService;
         this.adaptiveActionResolver = adaptiveActionResolver;
         this.adaptiveSegmentWorker = adaptiveSegmentWorker;
         this.minRegenInterval = Duration.ofSeconds(Math.max(0L, minRegenIntervalSec));
@@ -182,7 +184,8 @@ public class AdaptiveSessionService {
         Instant now = Instant.now();
         List<EegWindowRow> windows = eegWindowMapper.listWindows(sessionId);
         EegWindowRow previousWindow = eegWindowMapper.findLatestWindow(sessionId);
-        AdaptiveWindowSubmitResponse.SixAxis measuredSixAxis = adaptiveEegStateMapper.fromBands(request.bands());
+        Map<String, Object> recognitionResult = noosAiService.recognizeFromSummary(toEegRecognitionRequest(request));
+        AdaptiveWindowSubmitResponse.SixAxis measuredSixAxis = sixAxisFromRecognition(recognitionResult.get("currentState"));
         AdaptiveWindowSubmitResponse.SixAxis sixAxis = shouldHoldPreviousState(request)
                 ? sixAxisFromPrevious(previousWindow)
                 : measuredSixAxis;
@@ -219,7 +222,7 @@ public class AdaptiveSessionService {
         window.setRelaxationLevel(sixAxis.relaxationLevel());
         window.setCorticalArousal(sixAxis.corticalArousal());
         window.setMentalWorkload(sixAxis.mentalWorkload());
-        window.setStateLabel(adaptiveEegStateMapper.stateLabel(sixAxis));
+        window.setStateLabel(recognitionStateLabel(recognitionResult));
         window.setAdaptiveAction(action.type());
         window.setCreatedAt(now);
         eegWindowMapper.insert(window);
@@ -417,6 +420,46 @@ public class AdaptiveSessionService {
         return state;
     }
 
+    private EegRecognitionRequest toEegRecognitionRequest(AdaptiveWindowSubmitRequest request) {
+        return new EegRecognitionRequest(
+                null,
+                "Muse S Athena",
+                request.windowStartAt().toString(),
+                request.windowDurationSec(),
+                request.sampleRateHz().intValue(),
+                request.sampleCount().intValue(),
+                normalizeDominantBand(request.dominantBand()),
+                request.bands().delta(),
+                request.bands().theta(),
+                request.bands().alpha(),
+                request.bands().beta(),
+                request.bands().gamma()
+        );
+    }
+
+    private AdaptiveWindowSubmitResponse.SixAxis sixAxisFromRecognition(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return new AdaptiveWindowSubmitResponse.SixAxis(0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
+        }
+        return new AdaptiveWindowSubmitResponse.SixAxis(
+                clamp01(doubleValue(map.get("focus_readiness"))),
+                clamp01(doubleValue(map.get("stress_load"))),
+                clamp01(doubleValue(map.get("fatigue_risk"))),
+                clamp01(doubleValue(map.get("relaxation_level"))),
+                clamp01(doubleValue(map.get("cortical_arousal"))),
+                clamp01(doubleValue(map.get("mental_workload")))
+        );
+    }
+
+    private String recognitionStateLabel(Map<String, Object> recognitionResult) {
+        Object value = recognitionResult == null ? null : recognitionResult.get("stateLabel");
+        if (value == null) {
+            return "neutral";
+        }
+        String label = String.valueOf(value);
+        return label.isBlank() ? "neutral" : label;
+    }
+
     private boolean shouldHoldPreviousState(AdaptiveWindowSubmitRequest request) {
         return Boolean.FALSE.equals(request.signalOk()) || request.qualityScore() < 0.35;
     }
@@ -440,6 +483,16 @@ public class AdaptiveSessionService {
             return 0.5;
         }
         return Math.max(0.0, Math.min(1.0, value));
+    }
+
+    private Double doubleValue(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String string && !string.isBlank()) {
+            return Double.parseDouble(string);
+        }
+        return null;
     }
 
     private void validateWindowRequest(AdaptiveWindowSubmitRequest request) {
@@ -468,7 +521,7 @@ public class AdaptiveSessionService {
     }
 
     private boolean validBand(Double value) {
-        return value != null && value >= 0.0 && value <= 1.0 && Double.isFinite(value);
+        return value != null && value >= 0.0 && Double.isFinite(value);
     }
 
     private String normalizeDominantBand(String dominantBand) {

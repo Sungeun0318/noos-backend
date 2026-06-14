@@ -5,10 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.noos.backend.ai.dto.EegRecognitionRequest;
+import com.noos.backend.ai.service.NoosAiService;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionRow;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveSessionStartRequest;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveFeedbackRequest;
@@ -22,7 +25,6 @@ import com.noos.backend.mobile.adaptive.mapper.AdaptiveSessionMapper;
 import com.noos.backend.mobile.adaptive.mapper.EegWindowMapper;
 import com.noos.backend.mobile.adaptive.mapper.SessionSegmentMapper;
 import com.noos.backend.mobile.adaptive.service.AdaptiveActionResolver;
-import com.noos.backend.mobile.adaptive.service.AdaptiveEegStateMapper;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSegmentContext;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSegmentWorker;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSessionService;
@@ -31,6 +33,7 @@ import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.RequestContext;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,16 +62,29 @@ class AdaptiveSessionServiceTest {
     @Mock
     private AdaptiveSegmentWorker adaptiveSegmentWorker;
 
+    @Mock
+    private NoosAiService noosAiService;
+
     private AdaptiveSessionService service;
 
     @BeforeEach
     void setUp() {
+        lenient().when(noosAiService.recognizeFromSummary(any(EegRecognitionRequest.class)))
+                .thenReturn(recognition(
+                        0.45555555555555555,
+                        0.3111111111111111,
+                        0.3055555555555556,
+                        0.5777777777777777,
+                        0.4388888888888889,
+                        0.30833333333333335,
+                        "neutral"
+                ));
         service = new AdaptiveSessionService(
                 adaptiveSessionMapper,
                 adaptiveFeedbackMapper,
                 eegWindowMapper,
                 sessionSegmentMapper,
-                new AdaptiveEegStateMapper(),
+                noosAiService,
                 new AdaptiveActionResolver(),
                 adaptiveSegmentWorker,
                 300
@@ -258,7 +274,7 @@ class AdaptiveSessionServiceTest {
         when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(previous);
         assignWindowId(200L);
 
-        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(1, bands(0.1, 0.2, 0.3, 0.2, 0.1)));
+        var response = service.submitWindow("session_adaptive", DEVICE_ID, windowRequest(1, bands(10.0, 20.0, 30.0, 20.0, 10.0)));
 
         assertThat(response.windowId()).isEqualTo(200L);
         assertThat(response.sixAxis().focusReadiness()).isCloseTo(0.45555555555555555, within(0.0001));
@@ -274,11 +290,18 @@ class AdaptiveSessionServiceTest {
         verify(eegWindowMapper).insert(windowCaptor.capture());
         assertThat(windowCaptor.getValue().getAdaptiveAction()).isEqualTo("none");
         assertThat(windowCaptor.getValue().getStateLabel()).isEqualTo("neutral");
+        ArgumentCaptor<EegRecognitionRequest> recognitionCaptor = ArgumentCaptor.forClass(EegRecognitionRequest.class);
+        verify(noosAiService).recognizeFromSummary(recognitionCaptor.capture());
+        assertThat(recognitionCaptor.getValue().dominantBand()).isEqualTo("alpha");
+        assertThat(recognitionCaptor.getValue().delta()).isEqualTo(10.0);
+        assertThat(recognitionCaptor.getValue().measurementDurationSec()).isEqualTo(300);
         verify(sessionSegmentMapper, never()).insert(any(SessionSegmentRow.class));
     }
 
     @Test
     void submitWindowCreatesPendingSegmentForCrossfade() {
+        when(noosAiService.recognizeFromSummary(any(EegRecognitionRequest.class)))
+                .thenReturn(recognition(0.20, 0.80, 0.80, 0.20, 0.50, 0.80, "stressed"));
         when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
         when(eegWindowMapper.listWindows("session_adaptive")).thenReturn(List.of(window(1L, 0)));
         when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(window(1L, 0));
@@ -314,6 +337,8 @@ class AdaptiveSessionServiceTest {
 
     @Test
     void submitWindowGatesLowQualityToNone() {
+        when(noosAiService.recognizeFromSummary(any(EegRecognitionRequest.class)))
+                .thenReturn(recognition(0.20, 0.80, 0.80, 0.20, 0.50, 0.80, "stressed"));
         when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
         when(eegWindowMapper.listWindows("session_adaptive")).thenReturn(List.of(window(1L, 0)));
         when(eegWindowMapper.findLatestWindow("session_adaptive")).thenReturn(window(1L, 0));
@@ -331,6 +356,8 @@ class AdaptiveSessionServiceTest {
 
     @Test
     void submitWindowThrottlesRecentCrossfadeToParameterAdjust() {
+        when(noosAiService.recognizeFromSummary(any(EegRecognitionRequest.class)))
+                .thenReturn(recognition(0.20, 0.80, 0.80, 0.20, 0.50, 0.80, "stressed"));
         EegWindowRow previous = window(1L, 0);
         EegWindowRow recentCrossfade = window(2L, 1);
         recentCrossfade.setAdaptiveAction("crossfade");
@@ -494,6 +521,26 @@ class AdaptiveSessionServiceTest {
 
     private AdaptiveWindowSubmitRequest.Bands bands(double delta, double theta, double alpha, double beta, double gamma) {
         return new AdaptiveWindowSubmitRequest.Bands(delta, theta, alpha, beta, gamma);
+    }
+
+    private Map<String, Object> recognition(double focus,
+                                            double stress,
+                                            double fatigue,
+                                            double relaxation,
+                                            double arousal,
+                                            double workload,
+                                            String label) {
+        return Map.of(
+                "currentState", Map.of(
+                        "focus_readiness", focus,
+                        "stress_load", stress,
+                        "fatigue_risk", fatigue,
+                        "relaxation_level", relaxation,
+                        "cortical_arousal", arousal,
+                        "mental_workload", workload
+                ),
+                "stateLabel", label
+        );
     }
 
     private SessionSegmentRow segment(Long id, int index, String status) {
