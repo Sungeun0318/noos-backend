@@ -26,6 +26,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class GenerationWorker {
 
     private static final Logger log = LoggerFactory.getLogger(GenerationWorker.class);
+    private static final int ERROR_MESSAGE_MAX_LENGTH = 500;
+    private static final String TRUNCATED_SUFFIX = "...";
 
     private final MobileSessionMapper sessionMapper;
     private final NoosAiService noosAiService;
@@ -97,9 +99,21 @@ public class GenerationWorker {
             String code = isAceStepFailure(e) ? "ACE_STEP_DOWN" : "GENERATION_FAILED";
             recordGenerationDuration(ctx.planet(), "failed", startedNanos);
             meterRegistry.counter("noos.mobile.session.failed.count", "errorCode", code).increment();
-            sessionMapper.markFailed(sessionId, code, e.getMessage());
+            sessionMapper.markFailed(sessionId, code, truncateForColumn(e.getMessage(), ERROR_MESSAGE_MAX_LENGTH));
             notifyFailed(sessionId, ctx.planet());
         }
+    }
+
+    private static String truncateForColumn(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+
+        if (maxLength <= TRUNCATED_SUFFIX.length()) {
+            return value.substring(0, maxLength);
+        }
+
+        return value.substring(0, maxLength - TRUNCATED_SUFFIX.length()) + TRUNCATED_SUFFIX;
     }
 
     private void recordGenerationDuration(String planet, String status, long startedNanos) {
