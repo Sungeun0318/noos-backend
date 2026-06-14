@@ -24,6 +24,16 @@ import org.springframework.stereotype.Service;
 @Service
 public class StateMeasurementService {
 
+    private static final List<String> CANONICAL_AXES = List.of(
+            "focus_readiness",
+            "stress_load",
+            "fatigue_risk",
+            "relaxation_level",
+            "cortical_arousal",
+            "mental_workload"
+    );
+    private static final List<String> EEG_BANDS = List.of("delta", "theta", "alpha", "beta", "gamma");
+
     private final StateMeasurementMapper mapper;
     private final NoosAiService noosAiService;
     private final PlanetRecommender planetRecommender;
@@ -57,9 +67,11 @@ public class StateMeasurementService {
         double effectiveSurveyWeight = 1.0;
         double effectiveEegWeight = 0.0;
         Map<String, Object> recognitionResult = Map.of();
+        MeasureResponse.RecognitionDetail recognitionDetail = null;
 
         if (passesQualityGate(request.eeg())) {
             recognitionResult = noosAiService.recognizeFromSummary(toEegRecognitionRequest(request.eeg()));
+            recognitionDetail = recognitionDetail(recognitionResult.get("recognitionResult"));
             Map<String, Double> eegState = extractCurrentState(recognitionResult.get("currentState"));
             if (!eegState.isEmpty()) {
                 effectiveEegWeight = configuredEegWeight * Math.min(1.0, request.eeg().signalQuality() / 0.8);
@@ -109,7 +121,8 @@ public class StateMeasurementService {
                 confidence,
                 source,
                 new WeightInfo(effectiveSurveyWeight, effectiveEegWeight),
-                now
+                now,
+                recognitionDetail
         );
     }
 
@@ -233,6 +246,79 @@ public class StateMeasurementService {
         return combined;
     }
 
+    private MeasureResponse.RecognitionDetail recognitionDetail(Object value) {
+        Map<String, Object> payload = mapValue(value);
+        if (payload.isEmpty()) {
+            return null;
+        }
+
+        Map<String, Object> stateProfile = mapValue(payload.get("state_profile"));
+        String dominantState = stringValue(stateProfile.get("dominant_state"));
+        List<MeasureResponse.AxisDetail> axes = axisDetails(mapValue(stateProfile.get("dimensions")));
+        MeasureResponse.Quality quality = quality(mapValue(payload.get("quality")));
+        Map<String, Double> bands = bandDetails(mapValue(mapValue(payload.get("bands")).get("global_relative")));
+
+        if (dominantState == null && axes.isEmpty() && quality == null && bands == null) {
+            return null;
+        }
+        return new MeasureResponse.RecognitionDetail(dominantState, axes, quality, bands);
+    }
+
+    private List<MeasureResponse.AxisDetail> axisDetails(Map<String, Object> dimensions) {
+        if (dimensions.isEmpty()) {
+            return List.of();
+        }
+        return CANONICAL_AXES.stream()
+                .map(axis -> axisDetail(axis, mapValue(dimensions.get(axis))))
+                .filter(detail -> detail != null)
+                .toList();
+    }
+
+    private MeasureResponse.AxisDetail axisDetail(String axis, Map<String, Object> payload) {
+        Double score = doubleValue(payload.get("score"));
+        if (score == null) {
+            return null;
+        }
+        Double confidence = doubleValue(payload.get("confidence"));
+        return new MeasureResponse.AxisDetail(
+                axis,
+                clamp(score),
+                stringValue(payload.get("level")),
+                confidence == null ? 0.0 : clamp(confidence),
+                stringValue(payload.get("rationale"))
+        );
+    }
+
+    private MeasureResponse.Quality quality(Map<String, Object> payload) {
+        if (payload.isEmpty()) {
+            return null;
+        }
+        Boolean usable = booleanValue(payload.get("usable"));
+        Double score = doubleValue(payload.get("score"));
+        if (usable == null && score == null && !payload.containsKey("warnings")) {
+            return null;
+        }
+        return new MeasureResponse.Quality(
+                usable != null && usable,
+                score == null ? 0.0 : clamp(score),
+                stringList(payload.get("warnings"))
+        );
+    }
+
+    private Map<String, Double> bandDetails(Map<String, Object> payload) {
+        if (payload.isEmpty()) {
+            return null;
+        }
+        Map<String, Double> bands = new LinkedHashMap<>();
+        for (String band : EEG_BANDS) {
+            Double value = doubleValue(payload.get(band));
+            if (value != null) {
+                bands.put(band, clamp(value));
+            }
+        }
+        return bands.isEmpty() ? null : bands;
+    }
+
     private String writeJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -250,9 +336,46 @@ public class StateMeasurementService {
             return number.doubleValue();
         }
         if (value instanceof String string && !string.isBlank()) {
-            return Double.parseDouble(string);
+            try {
+                return Double.parseDouble(string);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
         }
         return null;
+    }
+
+    private Boolean booleanValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof String string && !string.isBlank()) {
+            return Boolean.parseBoolean(string);
+        }
+        return null;
+    }
+
+    private Map<String, Object> mapValue(Object value) {
+        if (!(value instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            if (entry.getKey() instanceof String key) {
+                result.put(key, entry.getValue());
+            }
+        }
+        return result;
+    }
+
+    private List<String> stringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream()
+                .filter(item -> item != null && !String.valueOf(item).isBlank())
+                .map(String::valueOf)
+                .toList();
     }
 
     private String stringValue(Object value) {

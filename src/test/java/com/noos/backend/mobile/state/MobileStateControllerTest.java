@@ -1,6 +1,7 @@
 package com.noos.backend.mobile.state;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -51,17 +52,7 @@ class MobileStateControllerTest {
                         0.82
                 ));
         when(noosAiService.recognizeFromSummary(any(EegRecognitionRequest.class)))
-                .thenReturn(Map.of(
-                        "currentState", Map.of(
-                                "focus_readiness", 0.9,
-                                "stress_load", 0.1,
-                                "fatigue_risk", 0.2,
-                                "relaxation_level", 0.8,
-                                "cortical_arousal", 0.7,
-                                "mental_workload", 0.2
-                        ),
-                        "stateLabel", "eeg calm focus"
-                ));
+                .thenReturn(recognitionResponse(richRecognitionResult()));
     }
 
     @Test
@@ -82,7 +73,8 @@ class MobileStateControllerTest {
                 .andExpect(jsonPath("$.source").value("survey"))
                 .andExpect(jsonPath("$.weight.survey").value(1.0))
                 .andExpect(jsonPath("$.weight.eeg").value(0.0))
-                .andExpect(jsonPath("$.recommendedPlanet").value("Mars"));
+                .andExpect(jsonPath("$.recommendedPlanet").value("Mars"))
+                .andExpect(jsonPath("$.recognition").value(nullValue()));
     }
 
     @Test
@@ -138,7 +130,17 @@ class MobileStateControllerTest {
                 .andExpect(jsonPath("$.stateLabel").value("eeg calm focus"))
                 .andExpect(jsonPath("$.weight.eeg").value(0.6))
                 .andExpect(jsonPath("$.weight.survey").value(0.4))
-                .andExpect(jsonPath("$.currentState.focus_readiness").value(0.74));
+                .andExpect(jsonPath("$.currentState.focus_readiness").value(0.74))
+                .andExpect(jsonPath("$.recognition.dominantState").value("calm_focus"))
+                .andExpect(jsonPath("$.recognition.axes[0].key").value("focus_readiness"))
+                .andExpect(jsonPath("$.recognition.axes[0].score").value(0.9))
+                .andExpect(jsonPath("$.recognition.axes[0].level").value("high"))
+                .andExpect(jsonPath("$.recognition.axes[0].confidence").value(0.91))
+                .andExpect(jsonPath("$.recognition.axes[0].rationale").value("beta and alpha support focus"))
+                .andExpect(jsonPath("$.recognition.quality.usable").value(true))
+                .andExpect(jsonPath("$.recognition.quality.score").value(0.84))
+                .andExpect(jsonPath("$.recognition.quality.warnings[0]").value("minor motion"))
+                .andExpect(jsonPath("$.recognition.bands.alpha").value(0.34));
     }
 
     @Test
@@ -207,7 +209,8 @@ class MobileStateControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.source").value("survey"))
                 .andExpect(jsonPath("$.weight.survey").value(1.0))
-                .andExpect(jsonPath("$.weight.eeg").value(0.0));
+                .andExpect(jsonPath("$.weight.eeg").value(0.0))
+                .andExpect(jsonPath("$.recognition").value(nullValue()));
     }
 
     @Test
@@ -224,7 +227,8 @@ class MobileStateControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.source").value("survey"))
                 .andExpect(jsonPath("$.weight.survey").value(1.0))
-                .andExpect(jsonPath("$.weight.eeg").value(0.0));
+                .andExpect(jsonPath("$.weight.eeg").value(0.0))
+                .andExpect(jsonPath("$.recognition").value(nullValue()));
     }
 
     @Test
@@ -302,6 +306,52 @@ class MobileStateControllerTest {
         assertThat(captor.getValue().gamma()).isEqualTo(0.0);
     }
 
+    @Test
+    void partialRecognitionResultMapsDefensively() throws Exception {
+        when(noosAiService.recognizeFromSummary(any(EegRecognitionRequest.class)))
+                .thenReturn(recognitionResponse(Map.of(
+                        "state_profile", Map.of(
+                                "dominant_state", "partial",
+                                "dimensions", Map.of(
+                                        "focus_readiness", Map.of("score", "0.64"),
+                                        "stress_load", Map.of("level", "missing-score")
+                                )
+                        ),
+                        "bands", Map.of(
+                                "global_relative", Map.of(
+                                        "alpha", "0.42",
+                                        "gamma", "not-a-number"
+                                )
+                        )
+                )));
+
+        String request = objectMapper.writeValueAsString(Map.of(
+                "survey", Map.of(
+                        "focus", 0.5,
+                        "stress", 0.2,
+                        "fatigue", 0.2,
+                        "relaxation", 0.6
+                ),
+                "eeg", Map.of(
+                        "deviceType", "Muse S Athena",
+                        "signalQuality", 0.84,
+                        "bands", fullBands()
+                )
+        ));
+
+        mockMvc.perform(post("/api/mobile/state/measure")
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recognition.dominantState").value("partial"))
+                .andExpect(jsonPath("$.recognition.axes[0].key").value("focus_readiness"))
+                .andExpect(jsonPath("$.recognition.axes[0].score").value(0.64))
+                .andExpect(jsonPath("$.recognition.axes.length()").value(1))
+                .andExpect(jsonPath("$.recognition.quality").value(nullValue()))
+                .andExpect(jsonPath("$.recognition.bands.alpha").value(0.42));
+    }
+
     private String body(Map<String, Object> survey) throws Exception {
         return objectMapper.writeValueAsString(Map.of("survey", survey));
     }
@@ -313,6 +363,60 @@ class MobileStateControllerTest {
                 "alpha", 28.2,
                 "beta", 31.5,
                 "gamma", 9.6
+        );
+    }
+
+    private Map<String, Object> recognitionResponse(Map<String, Object> recognitionResult) {
+        return Map.of(
+                "currentState", Map.of(
+                        "focus_readiness", 0.9,
+                        "stress_load", 0.1,
+                        "fatigue_risk", 0.2,
+                        "relaxation_level", 0.8,
+                        "cortical_arousal", 0.7,
+                        "mental_workload", 0.2
+                ),
+                "stateLabel", "eeg calm focus",
+                "recognitionResult", recognitionResult
+        );
+    }
+
+    private Map<String, Object> richRecognitionResult() {
+        return Map.of(
+                "state_profile", Map.of(
+                        "dominant_state", "calm_focus",
+                        "dimensions", Map.of(
+                                "focus_readiness", axis(0.9, "high", 0.91, "beta and alpha support focus"),
+                                "stress_load", axis(0.1, "low", 0.88, "low stress band balance"),
+                                "fatigue_risk", axis(0.2, "low", 0.86, "theta is controlled"),
+                                "relaxation_level", axis(0.8, "high", 0.9, "alpha is elevated"),
+                                "cortical_arousal", axis(0.7, "medium", 0.82, "arousal is stable"),
+                                "mental_workload", axis(0.2, "low", 0.84, "workload is low")
+                        )
+                ),
+                "quality", Map.of(
+                        "usable", true,
+                        "score", 0.84,
+                        "warnings", List.of("minor motion")
+                ),
+                "bands", Map.of(
+                        "global_relative", Map.of(
+                                "delta", 0.12,
+                                "theta", 0.18,
+                                "alpha", 0.34,
+                                "beta", 0.26,
+                                "gamma", 0.1
+                        )
+                )
+        );
+    }
+
+    private Map<String, Object> axis(double score, String level, double confidence, String rationale) {
+        return Map.of(
+                "score", score,
+                "level", level,
+                "confidence", confidence,
+                "rationale", rationale
         );
     }
 }

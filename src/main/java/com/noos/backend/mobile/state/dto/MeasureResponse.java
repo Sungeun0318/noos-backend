@@ -13,6 +13,30 @@ public record MeasureResponse(
         Double confidence,
         String source,
         WeightInfo weight,
-        Instant measuredAt
+        Instant measuredAt,
+        RecognitionDetail recognition
 ) {
+    public record RecognitionDetail(
+            String dominantState,
+            List<AxisDetail> axes,
+            Quality quality,
+            Map<String, Double> bands
+    ) {
+    }
+
+    public record AxisDetail(
+            String key,
+            double score,
+            String level,
+            double confidence,
+            String rationale
+    ) {
+    }
+
+    public record Quality(
+            boolean usable,
+            double score,
+            List<String> warnings
+    ) {
+    }
 }
