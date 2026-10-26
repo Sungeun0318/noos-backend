@@ -10,6 +10,9 @@ import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitRequest;
 import com.noos.backend.mobile.adaptive.dto.AdaptiveWindowSubmitResponse;
 import com.noos.backend.mobile.adaptive.dto.PauseAdaptiveSessionRequest;
 import com.noos.backend.mobile.adaptive.service.AdaptiveSessionService;
+import com.noos.backend.mobile.lighting.dto.LightingToggleRequest;
+import com.noos.backend.mobile.lighting.dto.SessionLighting;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,6 +67,13 @@ public class AdaptiveSessionController {
     public AdaptiveSessionStatusResponse end(@RequestHeader("x-device-id") String deviceId,
                                              @PathVariable String sessionId) {
         return adaptiveSessionService.end(sessionId, deviceId);
+    }
+
+    @PostMapping("/{sessionId}/lighting")
+    public SessionLighting setLighting(@RequestHeader("x-device-id") String deviceId,
+                                       @PathVariable String sessionId,
+                                       @Valid @RequestBody LightingToggleRequest request) {
+        return adaptiveSessionService.setLighting(sessionId, deviceId, request.enabled());
     }
 
     @PostMapping("/{sessionId}/feedback")

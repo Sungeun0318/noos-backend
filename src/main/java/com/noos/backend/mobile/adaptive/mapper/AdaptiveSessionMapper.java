@@ -17,4 +17,6 @@ public interface AdaptiveSessionMapper {
                       @Param("pausedReason") String pausedReason,
                       @Param("pausedAt") Instant pausedAt,
                       @Param("endedAt") Instant endedAt);
+
+    void updateLightingEnabled(@Param("id") String id, @Param("lightingEnabled") boolean lightingEnabled);
 }

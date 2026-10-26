@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.audio.service.AudioUrlSigner;
+import com.noos.backend.mobile.lighting.dto.SessionLighting;
+import com.noos.backend.mobile.lighting.service.MobileLightingCoordinator;
 import com.noos.backend.mobile.session.dto.EnqueueRequest;
 import com.noos.backend.mobile.session.dto.EnqueueResponse;
 import com.noos.backend.mobile.session.dto.FeedbackRequest;
@@ -35,19 +37,22 @@ public class MobileSessionService {
     private final GenerationWorker worker;
     private final MeterRegistry meterRegistry;
     private final AudioUrlSigner audioUrlSigner;
+    private final MobileLightingCoordinator lightingCoordinator;
 
     public MobileSessionService(MobileSessionMapper sessionMapper,
                                 SessionFeedbackMapper feedbackMapper,
                                 ObjectMapper objectMapper,
                                 GenerationWorker worker,
                                 MeterRegistry meterRegistry,
-                                AudioUrlSigner audioUrlSigner) {
+                                AudioUrlSigner audioUrlSigner,
+                                MobileLightingCoordinator lightingCoordinator) {
         this.sessionMapper = sessionMapper;
         this.feedbackMapper = feedbackMapper;
         this.objectMapper = objectMapper;
         this.worker = worker;
         this.meterRegistry = meterRegistry;
         this.audioUrlSigner = audioUrlSigner;
+        this.lightingCoordinator = lightingCoordinator;
     }
 
     public EnqueueResponse enqueue(EnqueueRequest request, String deviceId) {
@@ -122,6 +127,24 @@ public class MobileSessionService {
         return new FeedbackResponse(true, now);
     }
 
+    public SessionLighting setLighting(String sessionId, String deviceId, boolean enabled) {
+        MobileSessionRow row = findVisibleSession(sessionId, deviceId);
+        if (enabled && !lightingCoordinator.isAvailable()) {
+            throw new ApiException(ErrorCode.LIGHTING_DISABLED);
+        }
+        sessionMapper.updateLightingEnabled(sessionId, enabled);
+        if (!enabled) {
+            lightingCoordinator.turnOff(sessionId);
+            return new SessionLighting(false, false);
+        }
+        try {
+            return new SessionLighting(true, lightingCoordinator.turnOn(sessionId));
+        } catch (ApiException error) {
+            sessionMapper.updateLightingEnabled(sessionId, row.isLightingEnabled());
+            throw error;
+        }
+    }
+
     private MobileSessionRow findVisibleSession(String sessionId, String deviceId) {
         MobileSessionRow row = sessionMapper.findById(sessionId);
         if (row == null || row.getDeletedAt() != null || !deviceId.equals(row.getDeviceId())) {
@@ -139,7 +162,7 @@ public class MobileSessionService {
                 row.getStateLabel(),
                 readJson(row.getCurrentState()),
                 audioInfo(row),
-                null,
+                new SessionLighting(row.isLightingEnabled(), lightingCoordinator.isLitBy(row.getId())),
                 null,
                 null,
                 null,

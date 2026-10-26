@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,6 +34,8 @@ import com.noos.backend.mobile.audio.service.AudioUrlSigner;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.RequestContext;
+import com.noos.backend.mobile.lighting.dto.SessionLighting;
+import com.noos.backend.mobile.lighting.service.MobileLightingCoordinator;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +44,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -69,6 +74,9 @@ class AdaptiveSessionServiceTest {
     @Mock
     private AudioUrlSigner audioUrlSigner;
 
+    @Mock
+    private MobileLightingCoordinator lightingCoordinator;
+
     private AdaptiveSessionService service;
 
     @BeforeEach
@@ -92,6 +100,7 @@ class AdaptiveSessionServiceTest {
                 new AdaptiveActionResolver(),
                 adaptiveSegmentWorker,
                 audioUrlSigner,
+                lightingCoordinator,
                 300
         );
     }
@@ -106,7 +115,7 @@ class AdaptiveSessionServiceTest {
         RequestContext.setUser(42L, DEVICE_ID);
         assignSeedSegmentId();
 
-        var response = service.start(new AdaptiveSessionStartRequest("eeg", "Mars"), DEVICE_ID);
+        var response = service.start(new AdaptiveSessionStartRequest("eeg", "Mars", null), DEVICE_ID);
 
         ArgumentCaptor<AdaptiveSessionRow> sessionCaptor = ArgumentCaptor.forClass(AdaptiveSessionRow.class);
         ArgumentCaptor<SessionSegmentRow> segmentCaptor = ArgumentCaptor.forClass(SessionSegmentRow.class);
@@ -153,7 +162,7 @@ class AdaptiveSessionServiceTest {
     void startDefaultsSeedSourceAndPlanet() {
         assignSeedSegmentId();
 
-        service.start(new AdaptiveSessionStartRequest(null, null), DEVICE_ID);
+        service.start(new AdaptiveSessionStartRequest(null, null, null), DEVICE_ID);
 
         ArgumentCaptor<AdaptiveSessionRow> sessionCaptor = ArgumentCaptor.forClass(AdaptiveSessionRow.class);
         verify(adaptiveSessionMapper).insert(sessionCaptor.capture());
@@ -163,7 +172,7 @@ class AdaptiveSessionServiceTest {
 
     @Test
     void startRejectsInvalidSeedSource() {
-        assertThatThrownBy(() -> service.start(new AdaptiveSessionStartRequest("gemma", "Mars"), DEVICE_ID))
+        assertThatThrownBy(() -> service.start(new AdaptiveSessionStartRequest("gemma", "Mars", null), DEVICE_ID))
                 .isInstanceOf(ApiException.class)
                 .extracting(error -> ((ApiException) error).code)
                 .isEqualTo(ErrorCode.BAD_REQUEST);
@@ -218,6 +227,123 @@ class AdaptiveSessionServiceTest {
         verify(adaptiveSessionMapper).updateStatus("session_adaptive", "paused", "wear_off", paused.pausedAt(), null);
         verify(adaptiveSessionMapper).updateStatus("session_adaptive", "active", null, null, null);
         verify(adaptiveSessionMapper).updateStatus("session_adaptive", "ended", null, null, ended.endedAt());
+    }
+
+    @Test
+    void startStoresRequestedLightingFlag() {
+        assignSeedSegmentId();
+
+        service.start(new AdaptiveSessionStartRequest("eeg", "Mars", true), DEVICE_ID);
+
+        ArgumentCaptor<AdaptiveSessionRow> sessionCaptor = ArgumentCaptor.forClass(AdaptiveSessionRow.class);
+        verify(adaptiveSessionMapper).insert(sessionCaptor.capture());
+        assertThat(sessionCaptor.getValue().isLightingEnabled()).isTrue();
+    }
+
+    @Test
+    void pauseTurnsLightingOffAndResumeReappliesOnlyWhenEnabled() {
+        AdaptiveSessionRow paused = session("paused", DEVICE_ID);
+        paused.setLightingEnabled(true);
+        when(adaptiveSessionMapper.findById("session_adaptive"))
+                .thenReturn(session("active", DEVICE_ID))
+                .thenReturn(paused);
+
+        service.pause("session_adaptive", DEVICE_ID, new PauseAdaptiveSessionRequest("wear_off"));
+        service.resume("session_adaptive", DEVICE_ID);
+
+        verify(lightingCoordinator).turnOff("session_adaptive");
+        verify(lightingCoordinator).turnOnQuietly("session_adaptive");
+    }
+
+    @Test
+    void resumeLeavesLightingOffWhenDisabled() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("paused", DEVICE_ID));
+
+        service.resume("session_adaptive", DEVICE_ID);
+
+        verify(lightingCoordinator, never()).turnOnQuietly(any());
+    }
+
+    @Test
+    void endForgetsSessionLighting() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+
+        service.end("session_adaptive", DEVICE_ID);
+
+        verify(lightingCoordinator).forget("session_adaptive");
+    }
+
+    @Test
+    void setLightingOnPersistsFlagAndAppliesWhileActive() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        when(lightingCoordinator.isAvailable()).thenReturn(true);
+        when(lightingCoordinator.turnOn("session_adaptive")).thenReturn(true);
+
+        SessionLighting lighting = service.setLighting("session_adaptive", DEVICE_ID, true);
+
+        assertThat(lighting).isEqualTo(new SessionLighting(true, true));
+        verify(adaptiveSessionMapper).updateLightingEnabled("session_adaptive", true);
+    }
+
+    @Test
+    void setLightingOnRollsBackFlagWhenTurnOnFails() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        when(lightingCoordinator.isAvailable()).thenReturn(true);
+        when(lightingCoordinator.turnOn("session_adaptive")).thenThrow(new ApiException(ErrorCode.LIGHTING_DISABLED));
+
+        assertThatThrownBy(() -> service.setLighting("session_adaptive", DEVICE_ID, true))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code)
+                .isEqualTo(ErrorCode.LIGHTING_DISABLED);
+
+        InOrder inOrder = inOrder(adaptiveSessionMapper);
+        inOrder.verify(adaptiveSessionMapper).updateLightingEnabled("session_adaptive", true);
+        inOrder.verify(adaptiveSessionMapper).updateLightingEnabled("session_adaptive", false);
+    }
+
+    @Test
+    void setLightingOnWhilePausedOnlyPersistsFlag() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("paused", DEVICE_ID));
+        when(lightingCoordinator.isAvailable()).thenReturn(true);
+
+        SessionLighting lighting = service.setLighting("session_adaptive", DEVICE_ID, true);
+
+        assertThat(lighting).isEqualTo(new SessionLighting(true, false));
+        verify(adaptiveSessionMapper).updateLightingEnabled("session_adaptive", true);
+        verify(lightingCoordinator, never()).turnOn(any());
+    }
+
+    @Test
+    void setLightingOffTurnsOffSessionLighting() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+
+        SessionLighting lighting = service.setLighting("session_adaptive", DEVICE_ID, false);
+
+        assertThat(lighting).isEqualTo(new SessionLighting(false, false));
+        verify(adaptiveSessionMapper).updateLightingEnabled("session_adaptive", false);
+        verify(lightingCoordinator).turnOff("session_adaptive");
+    }
+
+    @Test
+    void setLightingOnRejectsWhenWizIsNotConfigured() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        when(lightingCoordinator.isAvailable()).thenReturn(false);
+
+        assertThatThrownBy(() -> service.setLighting("session_adaptive", DEVICE_ID, true))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code)
+                .isEqualTo(ErrorCode.LIGHTING_DISABLED);
+        verify(adaptiveSessionMapper, never()).updateLightingEnabled(any(), anyBoolean());
+    }
+
+    @Test
+    void setLightingRejectsEndedSession() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("ended", DEVICE_ID));
+
+        assertThatThrownBy(() -> service.setLighting("session_adaptive", DEVICE_ID, false))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code)
+                .isEqualTo(ErrorCode.ADAPTIVE_SESSION_STATE_CONFLICT);
     }
 
     @Test

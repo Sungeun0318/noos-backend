@@ -13,6 +13,7 @@ public class AdaptiveSessionRow {
     private String currentPlanet;
     private String pausedReason;
     private String seedSource;
+    private boolean lightingEnabled;
     private Instant startedAt;
     private Instant pausedAt;
     private Instant endedAt;
