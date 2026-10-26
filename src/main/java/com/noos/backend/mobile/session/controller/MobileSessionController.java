@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.IdempotencyService;
+import com.noos.backend.mobile.lighting.dto.LightingToggleRequest;
+import com.noos.backend.mobile.lighting.dto.SessionLighting;
 import com.noos.backend.mobile.session.dto.EnqueueRequest;
 import com.noos.backend.mobile.session.dto.EnqueueResponse;
 import com.noos.backend.mobile.session.dto.FeedbackRequest;
@@ -84,6 +86,13 @@ public class MobileSessionController {
                                             @RequestBody FeedbackRequest request) {
         return idempotent(idempotencyKey, SESSIONS_FEEDBACK_SCOPE, deviceId, HttpStatus.OK,
                 () -> sessionService.submitFeedback(sessionId, deviceId, request));
+    }
+
+    @PostMapping("/{sessionId}/lighting")
+    public SessionLighting setLighting(@RequestHeader("x-device-id") String deviceId,
+                                       @PathVariable String sessionId,
+                                       @Valid @RequestBody LightingToggleRequest request) {
+        return sessionService.setLighting(sessionId, deviceId, request.enabled());
     }
 
     private List<String> parseStatus(String status) {

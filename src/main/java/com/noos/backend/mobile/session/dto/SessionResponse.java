@@ -1,5 +1,6 @@
 package com.noos.backend.mobile.session.dto;
 
+import com.noos.backend.mobile.lighting.dto.SessionLighting;
 import java.time.Instant;
 import java.util.Map;
 
@@ -11,7 +12,7 @@ public record SessionResponse(
         String stateLabel,
         Map<String, Double> currentState,
         AudioInfo audio,
-        LightingInfo lighting,
+        SessionLighting lighting,
         Object summary,
         Object progress,
         Object error,
@@ -20,8 +21,5 @@ public record SessionResponse(
         Instant completedAt
 ) {
     public record AudioInfo(String audioId, Integer durationSec, String streamPath) {
-    }
-
-    public record LightingInfo(String jobId) {
     }
 }

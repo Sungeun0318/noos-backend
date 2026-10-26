@@ -18,6 +18,8 @@ public interface MobileSessionMapper {
                    @Param("lightingJobId") String lightingJobId,
                    @Param("completedAt") Instant completedAt);
 
+    void updateLightingEnabled(@Param("id") String id, @Param("lightingEnabled") boolean lightingEnabled);
+
     void markFailed(@Param("id") String id, @Param("code") String code, @Param("message") String message);
 
     MobileSessionRow findById(@Param("id") String id);

@@ -23,6 +23,8 @@ import com.noos.backend.mobile.audio.service.AudioUrlSigner;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
 import com.noos.backend.mobile.common.RequestContext;
+import com.noos.backend.mobile.lighting.dto.SessionLighting;
+import com.noos.backend.mobile.lighting.service.MobileLightingCoordinator;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
@@ -63,6 +65,7 @@ public class AdaptiveSessionService {
     private final AdaptiveActionResolver adaptiveActionResolver;
     private final AdaptiveSegmentWorker adaptiveSegmentWorker;
     private final AudioUrlSigner audioUrlSigner;
+    private final MobileLightingCoordinator lightingCoordinator;
     private final Duration minRegenInterval;
 
     public AdaptiveSessionService(AdaptiveSessionMapper adaptiveSessionMapper,
@@ -73,6 +76,7 @@ public class AdaptiveSessionService {
                                   AdaptiveActionResolver adaptiveActionResolver,
                                   AdaptiveSegmentWorker adaptiveSegmentWorker,
                                   AudioUrlSigner audioUrlSigner,
+                                  MobileLightingCoordinator lightingCoordinator,
                                   @Value("${noos.mobile.adaptive.min-regen-interval-sec:300}") long minRegenIntervalSec) {
         this.adaptiveSessionMapper = adaptiveSessionMapper;
         this.adaptiveFeedbackMapper = adaptiveFeedbackMapper;
@@ -82,6 +86,7 @@ public class AdaptiveSessionService {
         this.adaptiveActionResolver = adaptiveActionResolver;
         this.adaptiveSegmentWorker = adaptiveSegmentWorker;
         this.audioUrlSigner = audioUrlSigner;
+        this.lightingCoordinator = lightingCoordinator;
         this.minRegenInterval = Duration.ofSeconds(Math.max(0L, minRegenIntervalSec));
     }
 
@@ -99,6 +104,7 @@ public class AdaptiveSessionService {
         session.setInitialPlanet(planet);
         session.setCurrentPlanet(planet);
         session.setSeedSource(seedSource);
+        session.setLightingEnabled(request != null && Boolean.TRUE.equals(request.lightingEnabled()));
         session.setStartedAt(now);
         session.setCreatedAt(now);
         adaptiveSessionMapper.insert(session);
@@ -139,6 +145,7 @@ public class AdaptiveSessionService {
         Instant now = Instant.now();
         String reason = normalizePauseReason(request == null ? null : request.reason());
         adaptiveSessionMapper.updateStatus(sessionId, "paused", reason, now, null);
+        lightingCoordinator.turnOff(sessionId);
         return new AdaptiveSessionStatusResponse(sessionId, "paused", reason, now, null);
     }
 
@@ -146,6 +153,9 @@ public class AdaptiveSessionService {
         AdaptiveSessionRow session = findVisibleSession(sessionId, deviceId);
         requireStatus(session, "paused", "resume");
         adaptiveSessionMapper.updateStatus(sessionId, "active", null, null, null);
+        if (session.isLightingEnabled()) {
+            lightingCoordinator.turnOnQuietly(sessionId);
+        }
         return new AdaptiveSessionStatusResponse(sessionId, "active", null, null, null);
     }
 
@@ -156,7 +166,26 @@ public class AdaptiveSessionService {
         }
         Instant now = Instant.now();
         adaptiveSessionMapper.updateStatus(sessionId, "ended", null, null, now);
+        lightingCoordinator.forget(sessionId);
         return new AdaptiveSessionStatusResponse(sessionId, "ended", null, null, now);
+    }
+
+    public SessionLighting setLighting(String sessionId, String deviceId, boolean enabled) {
+        AdaptiveSessionRow session = findVisibleSession(sessionId, deviceId);
+        if (!"active".equals(session.getStatus()) && !"paused".equals(session.getStatus())) {
+            throw stateConflict(session, "toggle lighting");
+        }
+        if (enabled && !lightingCoordinator.isAvailable()) {
+            throw new ApiException(ErrorCode.LIGHTING_DISABLED);
+        }
+        adaptiveSessionMapper.updateLightingEnabled(sessionId, enabled);
+        if (!enabled) {
+            lightingCoordinator.turnOff(sessionId);
+            return new SessionLighting(false, false);
+        }
+        // 일시정지 중에 켜면 저장만 하고, 재개할 때 켠다.
+        boolean active = "active".equals(session.getStatus()) && lightingCoordinator.turnOn(sessionId);
+        return new SessionLighting(true, active);
     }
 
     public AdaptiveFeedbackResponse submitFeedback(String sessionId,
@@ -306,6 +335,7 @@ public class AdaptiveSessionService {
                 session.getCurrentPlanet(),
                 session.getSeedSource(),
                 session.getPausedReason(),
+                new SessionLighting(session.isLightingEnabled(), lightingCoordinator.isLitBy(session.getId())),
                 currentSegment(segmentViews),
                 nextSegment(segmentViews),
                 segmentViews,

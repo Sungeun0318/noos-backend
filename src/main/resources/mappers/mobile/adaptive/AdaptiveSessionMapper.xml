@@ -14,6 +14,7 @@
         <result property="currentPlanet" column="current_planet" />
         <result property="pausedReason" column="paused_reason" />
         <result property="seedSource" column="seed_source" />
+        <result property="lightingEnabled" column="lighting_enabled" />
         <result property="startedAt" column="started_at" />
         <result property="pausedAt" column="paused_at" />
         <result property="endedAt" column="ended_at" />
@@ -29,6 +30,7 @@
         current_planet,
         paused_reason,
         seed_source,
+        lighting_enabled,
         started_at,
         paused_at,
         ended_at,
@@ -45,6 +47,7 @@
             current_planet,
             paused_reason,
             seed_source,
+            lighting_enabled,
             started_at,
             paused_at,
             ended_at,
@@ -58,6 +61,7 @@
             #{currentPlanet},
             #{pausedReason},
             #{seedSource},
+            #{lightingEnabled},
             #{startedAt},
             #{pausedAt},
             #{endedAt},
@@ -78,6 +82,12 @@
             paused_reason = #{pausedReason},
             paused_at = #{pausedAt},
             ended_at = #{endedAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateLightingEnabled">
+        UPDATE adaptive_session
+        SET lighting_enabled = #{lightingEnabled}
         WHERE id = #{id}
     </update>
 

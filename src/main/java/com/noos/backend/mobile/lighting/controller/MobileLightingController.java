@@ -1,6 +1,7 @@
 package com.noos.backend.mobile.lighting.controller;
 
 import com.noos.backend.lighting.service.WizLightingService;
+import com.noos.backend.mobile.lighting.service.MobileLightingCoordinator;
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,14 +13,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class MobileLightingController {
 
     private final WizLightingService wizLightingService;
+    private final MobileLightingCoordinator lightingCoordinator;
 
-    public MobileLightingController(WizLightingService wizLightingService) {
+    public MobileLightingController(WizLightingService wizLightingService,
+                                    MobileLightingCoordinator lightingCoordinator) {
         this.wizLightingService = wizLightingService;
+        this.lightingCoordinator = lightingCoordinator;
     }
 
     @PostMapping("/stop")
     public Map<String, Object> stop() {
-        return wizLightingService.stopActiveJob();
+        return lightingCoordinator.stopAll();
     }
 
     @GetMapping("/status")

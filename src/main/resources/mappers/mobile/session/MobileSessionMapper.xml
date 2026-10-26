@@ -99,6 +99,12 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateLightingEnabled">
+        UPDATE mobile_sessions
+        SET lighting_enabled = #{lightingEnabled}
+        WHERE id = #{id}
+    </update>
+
     <update id="markFailed">
         UPDATE mobile_sessions
         SET status = 'failed',

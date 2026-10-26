@@ -1,5 +1,6 @@
 package com.noos.backend.mobile.adaptive.dto;
 
+import com.noos.backend.mobile.lighting.dto.SessionLighting;
 import java.time.Instant;
 import java.util.List;
 
@@ -10,6 +11,7 @@ public record AdaptiveSessionResponse(
         String currentPlanet,
         String seedSource,
         String pausedReason,
+        SessionLighting lighting,
         SegmentView currentSegment,
         SegmentView nextSegment,
         List<SegmentView> segments,

@@ -2,9 +2,9 @@ package com.noos.backend.mobile.session.service;
 
 import com.noos.backend.ai.dto.InterventionGenerationRequest;
 import com.noos.backend.ai.service.NoosAiService;
-import com.noos.backend.lighting.service.WizLightingService;
 import com.noos.backend.mobile.audio.service.AudioRegistryService;
 import com.noos.backend.mobile.device.service.NotificationService;
+import com.noos.backend.mobile.lighting.service.MobileLightingCoordinator;
 import com.noos.backend.mobile.session.dto.MobileSessionRow;
 import com.noos.backend.mobile.session.mapper.MobileSessionMapper;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -32,20 +32,20 @@ public class GenerationWorker {
     private final MobileSessionMapper sessionMapper;
     private final NoosAiService noosAiService;
     private final AudioRegistryService audioRegistry;
-    private final WizLightingService wizLightingService;
+    private final MobileLightingCoordinator lightingCoordinator;
     private final NotificationService notificationService;
     private final MeterRegistry meterRegistry;
 
     public GenerationWorker(MobileSessionMapper sessionMapper,
                             NoosAiService noosAiService,
                             AudioRegistryService audioRegistry,
-                            WizLightingService wizLightingService,
+                            MobileLightingCoordinator lightingCoordinator,
                             NotificationService notificationService,
                             MeterRegistry meterRegistry) {
         this.sessionMapper = sessionMapper;
         this.noosAiService = noosAiService;
         this.audioRegistry = audioRegistry;
-        this.wizLightingService = wizLightingService;
+        this.lightingCoordinator = lightingCoordinator;
         this.notificationService = notificationService;
         this.meterRegistry = meterRegistry;
     }
@@ -53,6 +53,7 @@ public class GenerationWorker {
     @Async("generationExecutor")
     public void run(String sessionId, GenerationContext ctx) {
         long startedNanos = System.nanoTime();
+        Map<String, Object> result = null;
         try {
             sessionMapper.updateStatus(sessionId, "generating", Instant.now());
 
@@ -75,7 +76,7 @@ public class GenerationWorker {
                     intentContext
             );
 
-            Map<String, Object> result = noosAiService.generateIntervention(request);
+            result = noosAiService.generateIntervention(request);
             String audioPath = extractAudioPath(result);
             if (audioPath == null || audioPath.isBlank()) {
                 throw new IllegalStateException("audio path missing from NoosAiService result");
@@ -83,19 +84,16 @@ public class GenerationWorker {
 
             Integer audioDuration = integerValue(result.get("audioDurationSec"));
             String audioId = audioRegistry.register(audioPath, sessionId, "audio/mpeg", audioDuration);
-            String lightingJobId;
-            if (ctx.lightingEnabled()) {
-                lightingJobId = extractLightingJobId(result);
-            } else {
-                stopLightingAfterDisabledSession(sessionId);
-                lightingJobId = null;
-            }
+            String lightingJobId = lightingCoordinator.onGenerated(sessionId, result, ctx.lightingEnabled());
 
             recordGenerationDuration(ctx.planet(), "ready", startedNanos);
             sessionMapper.markReady(sessionId, audioId, lightingJobId, Instant.now());
             notifyReady(sessionId);
         } catch (Exception e) {
             log.error("generation failed for {}", sessionId, e);
+            if (result != null) {
+                lightingCoordinator.onGenerationFailed(result);
+            }
             String code = isAceStepFailure(e) ? "ACE_STEP_DOWN" : "GENERATION_FAILED";
             recordGenerationDuration(ctx.planet(), "failed", startedNanos);
             meterRegistry.counter("noos.mobile.session.failed.count", "errorCode", code).increment();
@@ -174,19 +172,6 @@ public class GenerationWorker {
             }
         }
         return null;
-    }
-
-    String extractLightingJobId(Map<String, Object> result) {
-        Map<String, Object> wizLighting = mapValue(result.get("wizLighting"));
-        return stringValue(wizLighting.get("jobId"));
-    }
-
-    private void stopLightingAfterDisabledSession(String sessionId) {
-        try {
-            wizLightingService.stopActiveJob();
-        } catch (Exception stopErr) {
-            log.warn("failed to stop lighting after lighting_enabled=false session {}", sessionId, stopErr);
-        }
     }
 
     private String extractPathFromAceStepEntries(Map<String, Object> interventionResult) {

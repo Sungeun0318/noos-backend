@@ -143,6 +143,65 @@ class MobileSessionControllerTest {
     }
 
     @Test
+    void lightingOffPersistsFlagAndShowsInSessionResponse() throws Exception {
+        String sessionId = createSession();
+        jdbc.update("UPDATE mobile_sessions SET lighting_enabled = 1 WHERE id = ?", sessionId);
+
+        mockMvc.perform(post("/api/mobile/sessions/{id}/lighting", sessionId)
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false))
+                .andExpect(jsonPath("$.active").value(false));
+
+        assertThat(lightingEnabled(sessionId)).isFalse();
+        mockMvc.perform(get("/api/mobile/sessions/{id}", sessionId)
+                        .header("x-device-id", DEVICE_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lighting.enabled").value(false))
+                .andExpect(jsonPath("$.lighting.active").value(false));
+    }
+
+    @Test
+    void lightingOnWithoutWizConfigReturnsServiceUnavailable() throws Exception {
+        String sessionId = createSession();
+
+        mockMvc.perform(post("/api/mobile/sessions/{id}/lighting", sessionId)
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("LIGHTING_DISABLED"));
+
+        assertThat(lightingEnabled(sessionId)).isFalse();
+    }
+
+    @Test
+    void lightingToggleRequiresEnabledField() throws Exception {
+        String sessionId = createSession();
+
+        mockMvc.perform(post("/api/mobile/sessions/{id}/lighting", sessionId)
+                        .header("x-device-id", DEVICE_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void lightingToggleOnForeignSessionReturnsNotFound() throws Exception {
+        String sessionId = createSession();
+
+        mockMvc.perform(post("/api/mobile/sessions/{id}/lighting", sessionId)
+                        .header("x-device-id", uniqueDeviceId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("SESSION_NOT_FOUND"));
+    }
+
+    @Test
     void deleteSoftDeletesSession() throws Exception {
         String sessionId = createSession();
 
@@ -240,6 +299,14 @@ class MobileSessionControllerTest {
 
         JsonNode json = objectMapper.readTree(result.getResponse().getContentAsString());
         return json.get("sessionId").asText();
+    }
+
+    private boolean lightingEnabled(String sessionId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT lighting_enabled FROM mobile_sessions WHERE id = ?",
+                Boolean.class,
+                sessionId
+        ));
     }
 
     private String sessionId(MvcResult result) throws Exception {
