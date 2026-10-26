@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -281,6 +283,22 @@ class AdaptiveSessionServiceTest {
 
         assertThat(lighting).isEqualTo(new SessionLighting(true, true));
         verify(adaptiveSessionMapper).updateLightingEnabled("session_adaptive", true);
+    }
+
+    @Test
+    void setLightingOnRollsBackFlagWhenTurnOnFails() {
+        when(adaptiveSessionMapper.findById("session_adaptive")).thenReturn(session("active", DEVICE_ID));
+        when(lightingCoordinator.isAvailable()).thenReturn(true);
+        when(lightingCoordinator.turnOn("session_adaptive")).thenThrow(new ApiException(ErrorCode.LIGHTING_DISABLED));
+
+        assertThatThrownBy(() -> service.setLighting("session_adaptive", DEVICE_ID, true))
+                .isInstanceOf(ApiException.class)
+                .extracting(error -> ((ApiException) error).code)
+                .isEqualTo(ErrorCode.LIGHTING_DISABLED);
+
+        InOrder inOrder = inOrder(adaptiveSessionMapper);
+        inOrder.verify(adaptiveSessionMapper).updateLightingEnabled("session_adaptive", true);
+        inOrder.verify(adaptiveSessionMapper).updateLightingEnabled("session_adaptive", false);
     }
 
     @Test

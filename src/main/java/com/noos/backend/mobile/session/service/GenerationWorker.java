@@ -84,7 +84,7 @@ public class GenerationWorker {
 
             Integer audioDuration = integerValue(result.get("audioDurationSec"));
             String audioId = audioRegistry.register(audioPath, sessionId, "audio/mpeg", audioDuration);
-            String lightingJobId = lightingCoordinator.onGenerated(sessionId, result, ctx.lightingEnabled());
+            String lightingJobId = lightingCoordinator.onGenerated(sessionId, result, lightingWanted(sessionId, ctx));
 
             recordGenerationDuration(ctx.planet(), "ready", startedNanos);
             sessionMapper.markReady(sessionId, audioId, lightingJobId, Instant.now());
@@ -99,6 +99,17 @@ public class GenerationWorker {
             meterRegistry.counter("noos.mobile.session.failed.count", "errorCode", code).increment();
             sessionMapper.markFailed(sessionId, code, truncateForColumn(e.getMessage(), ERROR_MESSAGE_MAX_LENGTH));
             notifyFailed(sessionId, ctx.planet());
+        }
+    }
+
+    // 생성 중에 POST /sessions/{id}/lighting 으로 바뀌었을 수 있어 enqueue 시점 값 대신 DB 를 다시 읽는다.
+    private boolean lightingWanted(String sessionId, GenerationContext ctx) {
+        try {
+            MobileSessionRow row = sessionMapper.findById(sessionId);
+            return row != null ? row.isLightingEnabled() : ctx.lightingEnabled();
+        } catch (Exception readErr) {
+            log.warn("failed to re-read lighting flag for {}", sessionId, readErr);
+            return ctx.lightingEnabled();
         }
     }
 

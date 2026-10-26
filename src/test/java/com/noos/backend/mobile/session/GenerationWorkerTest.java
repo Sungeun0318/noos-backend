@@ -2,6 +2,7 @@ package com.noos.backend.mobile.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
@@ -14,6 +15,7 @@ import com.noos.backend.lighting.service.WizLightingService;
 import com.noos.backend.mobile.audio.dto.GeneratedAudioRow;
 import com.noos.backend.mobile.audio.mapper.GeneratedAudioMapper;
 import com.noos.backend.mobile.device.service.NotificationService;
+import com.noos.backend.mobile.lighting.service.MobileLightingCoordinator;
 import com.noos.backend.mobile.session.dto.MobileSessionRow;
 import com.noos.backend.mobile.session.mapper.MobileSessionMapper;
 import com.noos.backend.mobile.session.service.GenerationContext;
@@ -25,6 +27,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,8 +55,18 @@ class GenerationWorkerTest {
     @MockBean
     private NotificationService notificationService;
 
+    @Autowired
+    private MobileLightingCoordinator lightingCoordinator;
+
     @TempDir
     private Path tempDir;
+
+    // coordinator 는 컨텍스트 싱글톤이라 이전 테스트가 남긴 조명 owner 를 비우고 시작한다.
+    @BeforeEach
+    void resetLighting() {
+        lightingCoordinator.stopAll();
+        clearInvocations(wizLightingService);
+    }
 
     @Test
     void workerMarksSessionReadyAndRegistersGeneratedAudio() throws Exception {
@@ -177,6 +190,55 @@ class GenerationWorkerTest {
         MobileSessionRow row = waitForReady(sessionId);
         verify(wizLightingService, never()).stopActiveJob();
         assertThat(row.getLightingJobId()).isEqualTo("lighting_test");
+    }
+
+    @Test
+    void lightingTurnedOffDuringGenerationRevertsAutoApply() throws Exception {
+        Path audioFile = createAudioFile();
+        String sessionId = "session_worker_" + System.nanoTime();
+        insertQueuedSession(sessionId, true);
+        sessionMapper.updateLightingEnabled(sessionId, false);
+        mockInterventionResult(audioFile);
+
+        worker.run(sessionId, new GenerationContext(
+                "Mars",
+                60,
+                Map.of("focus_readiness", 0.5),
+                "calm focus",
+                "집중",
+                "hybrid",
+                true
+        ));
+
+        MobileSessionRow row = waitForReady(sessionId);
+        verify(wizLightingService, times(1)).stopActiveJob();
+        assertThat(row.getLightingJobId()).isNull();
+        assertThat(lightingCoordinator.isLitBy(sessionId)).isFalse();
+    }
+
+    @Test
+    void failedGenerationAfterAutoApplyStopsLighting() throws Exception {
+        String sessionId = "session_worker_" + System.nanoTime();
+        insertQueuedSession(sessionId, true);
+        when(noosAiService.generateIntervention(any(InterventionGenerationRequest.class)))
+                .thenReturn(Map.of(
+                        "interventionResult", Map.of(),
+                        "wizLighting", Map.of("jobId", "lighting_auto_applied")
+                ));
+
+        worker.run(sessionId, new GenerationContext(
+                "Mars",
+                60,
+                Map.of("focus_readiness", 0.5),
+                "calm focus",
+                "집중",
+                "hybrid",
+                true
+        ));
+
+        MobileSessionRow row = waitForStatus(sessionId, "failed");
+        assertThat(row.getErrorCode()).isEqualTo("GENERATION_FAILED");
+        verify(wizLightingService, timeout(1000).times(1)).stopActiveJob();
     }
 
     @Test

@@ -128,16 +128,21 @@ public class MobileSessionService {
     }
 
     public SessionLighting setLighting(String sessionId, String deviceId, boolean enabled) {
-        findVisibleSession(sessionId, deviceId);
+        MobileSessionRow row = findVisibleSession(sessionId, deviceId);
         if (enabled && !lightingCoordinator.isAvailable()) {
             throw new ApiException(ErrorCode.LIGHTING_DISABLED);
         }
         sessionMapper.updateLightingEnabled(sessionId, enabled);
-        if (enabled) {
-            return new SessionLighting(true, lightingCoordinator.turnOn(sessionId));
+        if (!enabled) {
+            lightingCoordinator.turnOff(sessionId);
+            return new SessionLighting(false, false);
         }
-        lightingCoordinator.turnOff(sessionId);
-        return new SessionLighting(false, false);
+        try {
+            return new SessionLighting(true, lightingCoordinator.turnOn(sessionId));
+        } catch (ApiException error) {
+            sessionMapper.updateLightingEnabled(sessionId, row.isLightingEnabled());
+            throw error;
+        }
     }
 
     private MobileSessionRow findVisibleSession(String sessionId, String deviceId) {

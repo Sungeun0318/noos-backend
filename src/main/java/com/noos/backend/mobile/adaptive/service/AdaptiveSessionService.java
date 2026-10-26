@@ -184,8 +184,15 @@ public class AdaptiveSessionService {
             return new SessionLighting(false, false);
         }
         // 일시정지 중에 켜면 저장만 하고, 재개할 때 켠다.
-        boolean active = "active".equals(session.getStatus()) && lightingCoordinator.turnOn(sessionId);
-        return new SessionLighting(true, active);
+        if (!"active".equals(session.getStatus())) {
+            return new SessionLighting(true, false);
+        }
+        try {
+            return new SessionLighting(true, lightingCoordinator.turnOn(sessionId));
+        } catch (ApiException error) {
+            adaptiveSessionMapper.updateLightingEnabled(sessionId, session.isLightingEnabled());
+            throw error;
+        }
     }
 
     public AdaptiveFeedbackResponse submitFeedback(String sessionId,

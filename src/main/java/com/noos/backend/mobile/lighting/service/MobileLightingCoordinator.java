@@ -3,10 +3,16 @@ package com.noos.backend.mobile.lighting.service;
 import com.noos.backend.lighting.service.WizLightingService;
 import com.noos.backend.mobile.common.ApiException;
 import com.noos.backend.mobile.common.ErrorCode;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -18,31 +24,43 @@ import org.springframework.web.server.ResponseStatusException;
  * 다시 켜면 기억한 spec 을 재적용한다.
  *
  * <p>전구는 백엔드 한 대에 묶인 공용 자원이라 "지금 조명을 잡고 있는 세션"(owner) 하나만 추적한다.
+ * owner 는 조명 프로그램 길이 + 여유만큼만 유효하다 — 앱이 stop 없이 사라져도 오래된 세션의 색을 되살리지 않는다.
  */
 @Service
 public class MobileLightingCoordinator {
 
     private static final Logger log = LoggerFactory.getLogger(MobileLightingCoordinator.class);
     private static final int MAX_REMEMBERED_SESSIONS = 32;
+    private static final Duration OWNER_LEASE_GRACE = Duration.ofMinutes(10);
+    private static final Duration DEFAULT_PROGRAM_DURATION = Duration.ofMinutes(30);
 
     private final WizLightingService wizLightingService;
+    private final Clock clock;
     private final Map<String, Map<String, Object>> lightingSpecs = new LinkedHashMap<>(16, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Map<String, Object>> eldest) {
             return size() > MAX_REMEMBERED_SESSIONS;
         }
     };
-    private String ownerSessionId;
+    // 쓰기는 synchronized 안에서만. 세션 조회·폴링은 UDP 명령이 끝나길 기다리지 않도록 잠금 없이 읽는다.
+    private volatile String ownerSessionId;
+    private volatile Instant ownerLeaseUntil;
 
+    @Autowired
     public MobileLightingCoordinator(WizLightingService wizLightingService) {
+        this(wizLightingService, Clock.systemUTC());
+    }
+
+    public MobileLightingCoordinator(WizLightingService wizLightingService, Clock clock) {
         this.wizLightingService = wizLightingService;
+        this.clock = clock;
     }
 
     public boolean isAvailable() {
         return wizLightingService.shouldAutoApply();
     }
 
-    public synchronized boolean isLitBy(String sessionId) {
+    public boolean isLitBy(String sessionId) {
         return sessionId != null && sessionId.equals(ownerSessionId);
     }
 
@@ -55,7 +73,7 @@ public class MobileLightingCoordinator {
         String startedJobId = startedJobId(generationResult);
         if (keepOn) {
             if (startedJobId != null) {
-                ownerSessionId = sessionId;
+                takeOwnership(sessionId, spec);
             }
             return startedJobId;
         }
@@ -63,7 +81,7 @@ public class MobileLightingCoordinator {
             // 자동 적용이 일어나지 않았으니 다른 세션이 켜 둔 조명을 끌 이유가 없다.
             return null;
         }
-        revertAutoApplied(sessionId);
+        restoreLiveOwnerOrStop(sessionId);
         return null;
     }
 
@@ -73,12 +91,7 @@ public class MobileLightingCoordinator {
         if (startedJobId(generationResult) == null) {
             return;
         }
-        String owner = ownerSessionId;
-        if (owner != null && lightingSpecs.containsKey(owner) && turnOnQuietly(owner)) {
-            return;
-        }
-        stopQuietly();
-        ownerSessionId = null;
+        restoreLiveOwnerOrStop(null);
     }
 
     // 기억한 spec 이 없으면(아직 생성 전이거나 서버 재시작) false — 다음 생성 때 켜진다.
@@ -93,9 +106,13 @@ public class MobileLightingCoordinator {
         try {
             wizLightingService.startAlternatingFromPayload(Map.of("lighting_spec", spec));
         } catch (ResponseStatusException error) {
-            throw new ApiException(ErrorCode.LIGHTING_DISABLED, reasonOf(error), error);
+            // 503 은 전구·설정 문제, 그 밖(400 등)은 기억한 spec 이 잘못된 서버 쪽 데이터 문제다.
+            ErrorCode code = error.getStatusCode().value() == HttpStatus.SERVICE_UNAVAILABLE.value()
+                    ? ErrorCode.LIGHTING_DISABLED
+                    : ErrorCode.INTERNAL;
+            throw new ApiException(code, reasonOf(error), error);
         }
-        ownerSessionId = sessionId;
+        takeOwnership(sessionId, spec);
         return true;
     }
 
@@ -114,7 +131,7 @@ public class MobileLightingCoordinator {
             return;
         }
         stopQuietly();
-        ownerSessionId = null;
+        clearOwnership();
     }
 
     public synchronized void forget(String sessionId) {
@@ -123,18 +140,49 @@ public class MobileLightingCoordinator {
     }
 
     public synchronized Map<String, Object> stopAll() {
-        ownerSessionId = null;
+        clearOwnership();
         return wizLightingService.stopActiveJob();
     }
 
-    private void revertAutoApplied(String sessionId) {
+    private void restoreLiveOwnerOrStop(String generatedSessionId) {
         String previousOwner = ownerSessionId;
-        if (previousOwner != null && !previousOwner.equals(sessionId) && lightingSpecs.containsKey(previousOwner)
-                && turnOnQuietly(previousOwner)) {
+        boolean restorable = previousOwner != null
+                && !previousOwner.equals(generatedSessionId)
+                && ownerLeaseActive()
+                && lightingSpecs.containsKey(previousOwner);
+        if (restorable && turnOnQuietly(previousOwner)) {
             return;
         }
         stopQuietly();
+        clearOwnership();
+    }
+
+    private void takeOwnership(String sessionId, Map<String, Object> spec) {
+        ownerSessionId = sessionId;
+        ownerLeaseUntil = clock.instant().plus(programDuration(spec)).plus(OWNER_LEASE_GRACE);
+    }
+
+    private void clearOwnership() {
         ownerSessionId = null;
+        ownerLeaseUntil = null;
+    }
+
+    private boolean ownerLeaseActive() {
+        Instant leaseUntil = ownerLeaseUntil;
+        return leaseUntil != null && clock.instant().isBefore(leaseUntil);
+    }
+
+    private Duration programDuration(Map<String, Object> spec) {
+        long totalSec = 0;
+        Object phases = spec == null ? null : spec.get("phases");
+        if (phases instanceof List<?> list) {
+            for (Object phase : list) {
+                if (phase instanceof Map<?, ?> map && map.get("duration_sec") instanceof Number seconds) {
+                    totalSec += Math.max(0, seconds.longValue());
+                }
+            }
+        }
+        return totalSec > 0 ? Duration.ofSeconds(totalSec) : DEFAULT_PROGRAM_DURATION;
     }
 
     private void stopQuietly() {
